@@ -1,42 +1,55 @@
-# PDF Manager — variante Tesseract empaqueté
+# PDF Manager
 
-Même application que la version principale, mais l'**OCR utilise Tesseract**
-(exécutable plus léger et OCR plus rapide qu'EasyOCR). Le moteur `tesseract.exe`
-est embarqué : l'utilisateur final n'installe rien.
+Application de bureau autonome pour **gérer, fusionner, découper et OCRiser des
+PDF**. Le moteur OCR **Tesseract** est embarqué dans l'exécutable : l'utilisateur
+final n'installe rien.
+
+**Exécution sans installation et sans dépendance tierce** : l'exécutable se lance
+directement par double-clic, ne nécessite aucune installation et ne dépend
+d'aucune application ou logiciel tiers pour fonctionner (Tesseract et toutes les
+bibliothèques requises sont embarqués).
 
 ---
 
 ## 1. Fonctionnalités
 
-Écran des PDF (bibliothèque) :
+### Bibliothèque (écran principal)
 
-- ajout par glisser-déposer ou bouton « Ajouter des PDF » ;
-- vignettes de la 1ère page de chaque document ;
-- sélection multiple numérotée (1, 2, 3…) ; recliquer désélectionne et
-  renumérote ;
+- **Ajout de PDF** par glisser-déposer ou via le bouton « Ajouter des PDF ».
+- **Vignettes** de la première page de chaque document.
+- **Sélection multiple numérotée** : un `1` apparaît sur le premier document
+  sélectionné, puis `2`, `3`… ; recliquer sur un document le désélectionne et
+  renumérote automatiquement les suivants.
+- **Tout sélectionner / désélectionner** (bouton bascule).
+- **Fusion (merge)** des documents sélectionnés dans l'ordre de sélection.
 - **OCR sur la sélection** : applique l'OCR à tous les documents sélectionnés
-  (un `*_ocr.pdf` cherchable et compressé par document) ;
-- **« Tout sélectionner / désélectionner »** (bouton bascule) ;
-- **recherche plein texte** dans les documents sélectionnés (résultats par
-  document et par page, double-clic pour ouvrir) ;
-- fusion des documents sélectionnés.
+  (produit un PDF cherchable et compressé par document).
+- **Recherche plein texte** dans les documents sélectionnés (résultats par
+  document et par page, double-clic pour ouvrir la page).
 
-Double-clic sur un document → visionneuse :
+### Visionneuse (double-clic sur un document)
 
-- **1 page** : le contenu s'affiche en grand, avec **zoom** ;
-- **plusieurs pages** : affichage **en continu (par défaut)** ou en
-  **vignettes**, les deux avec **zoom** (boutons ➖ ➕ ⤢, ou molette + Ctrl) ;
-- bouton **OCR** du document ;
-- **rotation** des pages (90°/180°, sens horaire/anti-horaire) : pages
-  sélectionnées, ou tout le document si rien n'est sélectionné ;
-- **suppression** d'une ou plusieurs pages sélectionnées ;
-- **clic droit** sur une vignette : pivoter / supprimer / découper avant ou après ;
-- **réorganisation** des pages par glisser-déposer (mode vignettes) ;
-- **enregistrement** d'un nouveau document (nom proposé, option de suppression
-  de la source), toujours compressé.
+- **Affichage 1 page** en grand, avec **zoom**.
+- **Affichage multi-pages** : **en continu** (par défaut) ou en **vignettes**,
+  les deux avec zoom (boutons ➖ ➕ ⤢ ou molette + Ctrl).
+- **OCR** du document ouvert (bouton dédié).
+- **Découpe (split)** : clic droit sur une page → découper **avant** ou
+  **après** cette page.
+- **Rotation** des pages (90° / 180°, sens horaire / anti-horaire) : pages
+  sélectionnées, ou tout le document si rien n'est sélectionné.
+- **Suppression** d'une ou plusieurs pages sélectionnées.
+- **Réorganisation** des pages par glisser-déposer (mode vignettes).
+- **Enregistrement** d'un nouveau document :
+  - nom proposé automatiquement à partir du premier document ;
+  - option de **suppression du document source** ;
+  - le document enregistré est **toujours compressé**.
 
-L'OCR Tesseract détecte la langue automatiquement (eng/fra par défaut, autres
-langues chargées à la volée) et produit un PDF cherchable.
+### OCR
+
+L'OCR Tesseract **détecte la langue automatiquement**. Les langues **anglais
+(eng)** et **français (fra)** sont disponibles par défaut ; toute autre langue
+nécessaire est **chargée à la volée** selon le document. Le résultat est un PDF
+cherchable.
 
 ---
 
@@ -52,8 +65,7 @@ langues chargées à la volée) et produit un PDF cherchable.
 L'application n'a **pas** besoin de `pdf.ttf` ni des fichiers `configs` : elle
 construit elle-même la couche de texte cherchable. Les modèles de langue
 manquants (eng/fra puis autres) sont copiés ou téléchargés automatiquement au
-premier OCR, dans `%LOCALAPPDATA%\PDFManager\tessdata` (accessible en
-écriture).
+premier OCR, dans `%LOCALAPPDATA%\PDFManager\tessdata` (accessible en écriture).
 
 > Repli : si `tesseract\` reste vide, l'application utilise un Tesseract
 > installé sur la machine (`C:\Program Files\Tesseract-OCR` ou PATH).
@@ -62,7 +74,8 @@ premier OCR, dans `%LOCALAPPDATA%\PDFManager\tessdata` (accessible en
 
 ## 3. Générer l'exécutable autonome
 
-Pré-requis de build : **Python 3.10+** (seulement pour fabriquer l'exe).
+Pré-requis de build : **Python 3.10+** (uniquement pour fabriquer l'exe ; pas
+nécessaire pour l'utilisateur final).
 
 1. Vérifiez que `tesseract\tesseract.exe` est présent (étape 2).
 2. Double-cliquez sur **`build.bat`**.
@@ -80,10 +93,10 @@ Tesseract installé sur le PC).
 
 ---
 
-## 5. Structure
+## 5. Structure du projet
 
 ```
-PDFManager_Tesseract/
+PDFManager/
 ├─ run.py
 ├─ build.bat                Génère l'exe (embarque tesseract\ et tessdata\)
 ├─ telecharger_langues.bat  Récupère eng + fra dans tesseract\tessdata\
@@ -100,3 +113,10 @@ PDFManager_Tesseract/
    ├─ ocr.py        OCR Tesseract (langues writable, couche texte maison)
    └─ flowlayout.py Galerie
 ```
+
+---
+
+## 6. Développement
+
+Application développée avec **Claude Opus 4.8** (Anthropic).
+
