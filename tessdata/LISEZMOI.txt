@@ -1,0 +1,8 @@
+Ce dossier contient les modèles de langue de Tesseract (.traineddata).
+
+Langues par défaut : eng (anglais) et fra (français).
+Lancez "telecharger_langues.bat" pour les récupérer automatiquement,
+ou build.bat le fera si elles sont absentes.
+
+Les autres langues sont téléchargées automatiquement par l'application au
+moment où un document dans cette langue est détecté.

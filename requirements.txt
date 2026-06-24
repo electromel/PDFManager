@@ -1,0 +1,13 @@
+# Interface graphique
+PySide6>=6.6
+
+# Lecture / rendu / fusion / découpe / compression des PDF (autonome)
+PyMuPDF>=1.24
+
+# Pont Python vers le moteur Tesseract (le binaire est embarqué, voir README)
+pytesseract>=0.3.10
+langdetect>=1.0.9
+Pillow>=10.0
+
+# Outil de génération de l'exécutable
+pyinstaller>=6.0

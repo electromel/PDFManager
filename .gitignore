@@ -1,0 +1,50 @@
+# ===== Éléments téléchargés / générés à l'exécution =====
+# Langues OCR Tesseract chargées automatiquement (garder seulement EN/FR si versionnées)
+tessdata/*.traineddata
+!tessdata/eng.traineddata
+!tessdata/fra.traineddata
+*.traineddata
+
+# Tesseract / Poppler / binaires tiers récupérés au runtime
+tesseract/
+poppler/
+bin/
+vendor/
+tools/
+
+# ===== Build de l'exécutable (PyInstaller / cx_Freeze) =====
+build/
+dist/
+*.spec.bak
+*.exe
+*.msi
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ===== Environnement virtuel Python =====
+.venv/
+venv/
+env/
+ENV/
+
+# ===== Cache / temporaires de l'appli =====
+*.log
+*.tmp
+*.bak
+cache/
+temp/
+thumbnails/
+.thumbnails/
+
+# ===== Fichiers PDF de test / données utilisateur =====
+*.pdf
+!docs/*.pdf
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
