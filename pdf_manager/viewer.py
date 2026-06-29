@@ -77,9 +77,18 @@ class _ContPage(QLabel):
 
     def _restyle(self):
         if self._sel:
-            self.setStyleSheet("margin:6px;border:3px solid #2d7ef7;background:#e9f1ff;")
+            self.setStyleSheet(
+                "margin:6px;"
+                "border-top:1px solid #D5D9E2;"
+                "border-right:1px solid #D5D9E2;"
+                "border-bottom:1px solid #D5D9E2;"
+                "border-left:4px solid #B8892C;"
+                "background:#FEF8EE;"
+            )
         else:
-            self.setStyleSheet("margin:6px;border:1px solid #ccc;")
+            self.setStyleSheet(
+                "margin:6px;border:1px solid #D5D9E2;background:#FFFFFF;"
+            )
 
     def set_selected(self, value: bool):
         if self._sel != value:
@@ -342,7 +351,7 @@ class ViewerWindow(QMainWindow):
         self._update_mode_icons()
 
     def _update_mode_icons(self):
-        on, off = "#ffffff", "#243044"
+        on, off = "#ffffff", "#1B3461"
         self.btn_continuous.setIcon(
             icons.icon("rows", on if self.btn_continuous.isChecked() else off))
         self.btn_thumbs.setIcon(

@@ -168,7 +168,7 @@ class PdfCard(QFrame):
         self.thumb.setAlignment(Qt.AlignCenter)
         self.thumb.setFixedHeight(THUMB_MAX + 16)
         self.thumb.setStyleSheet(
-            "background:#ffffff;border:1px solid #e6e9f0;border-radius:8px;")
+            "background:#F4F5F8;border:1px solid #D5D9E2;border-radius:0;")
         png = pdf_ops.render_first_page_png(path, max_size=THUMB_MAX)
         if png:
             pix = QPixmap()
@@ -186,7 +186,7 @@ class PdfCard(QFrame):
         f_badge = QFont(); f_badge.setPointSize(13); f_badge.setBold(True)
         self.badge.setFont(f_badge)
         self.badge.setStyleSheet(
-            "background:#2d7ef7;color:white;border-radius:18px;font-weight:bold;"
+            "background:#B8892C;color:white;border-radius:18px;font-weight:bold;"
             "border:2px solid white;"
         )
         self.badge.hide()
@@ -206,26 +206,49 @@ class PdfCard(QFrame):
         n = pdf_ops.page_count(path)
         self.pages_label = QLabel(f"{n} page(s)")
         self.pages_label.setAlignment(Qt.AlignCenter)
-        self.pages_label.setStyleSheet("color:#888;")
-        gf = QFont()
-        gf.setPointSize(7)
+        self.pages_label.setStyleSheet(
+            "color:#8F99AD;font-family:Consolas,monospace;font-size:10px;"
+        )
+        gf = QFont("Consolas")
+        gf.setPointSize(8)
         self.pages_label.setFont(gf)
         layout.addWidget(self.pages_label)
 
     def _apply_style(self):
         if self._selected_number is not None:
             self.setStyleSheet(
-                "#PdfCard{background:#e9f1ff;border:2px solid #2d7ef7;border-radius:14px;}"
+                "#PdfCard{"
+                "background:#FEF8EE;"
+                "border-top:1px solid #D5D9E2;"
+                "border-right:1px solid #D5D9E2;"
+                "border-bottom:1px solid #D5D9E2;"
+                "border-left:4px solid #B8892C;"
+                "border-radius:0;}"
             )
         elif self._active:
-            # document affiché dans l'onglet courant (à droite)
             self.setStyleSheet(
-                "#PdfCard{background:#fff6e8;border:2px solid #f59e0b;border-radius:14px;}"
+                "#PdfCard{"
+                "background:#F5F2E8;"
+                "border-top:1px solid #D5D9E2;"
+                "border-right:1px solid #D5D9E2;"
+                "border-bottom:1px solid #D5D9E2;"
+                "border-left:4px solid #B8892C;"
+                "border-radius:0;}"
             )
         else:
             self.setStyleSheet(
-                "#PdfCard{background:#ffffff;border:1px solid #e2e6ee;border-radius:14px;}"
-                "#PdfCard:hover{border:2px solid #9cc2ff;}"
+                "#PdfCard{"
+                "background:#FFFFFF;"
+                "border-top:1px solid #D5D9E2;"
+                "border-right:1px solid #D5D9E2;"
+                "border-bottom:1px solid #D5D9E2;"
+                "border-left:4px solid transparent;"
+                "border-radius:0;}"
+                "#PdfCard:hover{"
+                "border-left:4px solid #1B3461;"
+                "border-top:1px solid #C8D0DB;"
+                "border-right:1px solid #C8D0DB;"
+                "border-bottom:1px solid #C8D0DB;}"
             )
 
     def set_active(self, active: bool):
@@ -314,7 +337,9 @@ class LibraryWindow(QMainWindow):
             self.container,
         )
         self._empty_hint.setAlignment(Qt.AlignCenter)
-        self._empty_hint.setStyleSheet("color:#999;font-size:16px;")
+        self._empty_hint.setStyleSheet(
+            "color:#8F99AD;font-size:13px;font-family:'Segoe UI Variable','Segoe UI',sans-serif;"
+        )
         self._update_empty_hint()
 
         self.statusBar().showMessage("Prêt")
