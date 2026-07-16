@@ -39,6 +39,16 @@ bibliothèques requises sont embarqués).
   sélectionnées, ou tout le document si rien n'est sélectionné.
 - **Suppression** d'une ou plusieurs pages sélectionnées.
 - **Réorganisation** des pages par glisser-déposer (mode vignettes).
+- **Surlignage** (comme Acrobat) : bouton surligneur puis glisser à la souris —
+  sur du **texte**, chaque mot est surligné ; sur une **image/zone sans texte**,
+  un aplat de couleur semi-transparent est posé. Choix de la couleur (jaune,
+  vert, bleu, rose) via la flèche du bouton ; effacement des surlignages
+  (sélection ou tout le document) depuis le même menu. Les surlignages sont de
+  vraies annotations PDF, conservées à l'enregistrement.
+- **Copier / couper / coller de pages** : `Ctrl+C` / `Ctrl+X` / `Ctrl+V` (ou
+  clic droit sur une vignette : copier, couper, coller **avant** ou **après**
+  la page). Le collage fonctionne dans le **même document** ou dans **un autre
+  document ouvert** (onglets) ; sans sélection, les pages sont collées à la fin.
 - **Enregistrement** d'un nouveau document :
   - nom proposé automatiquement à partir du premier document ;
   - option de **suppression du document source** ;

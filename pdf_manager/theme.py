@@ -30,6 +30,19 @@ QMainWindow, QWidget {
     color: #0D1526;
 }
 
+/* ═══ TOOLTIPS ═════════════════════════════════════════════════════
+   Style explicite : sans lui, Windows en mode sombre fournit un fond
+   d'infobulle sombre alors que la règle « * » force un texte sombre,
+   rendant les infobulles illisibles. */
+
+QToolTip {
+    background: #FFFFFF;
+    color: #0D1526;
+    border: 1px solid #D5D9E2;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
 /* ═══ TOOLBAR ════════════════════════════════════════════════════ */
 
 QToolBar {
@@ -114,6 +127,15 @@ QComboBox {
 
 QComboBox:hover { border-color: #1B3461; }
 QComboBox::drop-down { border: none; width: 20px; }
+
+/* Liste déroulante : couleurs explicites (sinon palette système sombre). */
+QComboBox QAbstractItemView {
+    background: #FFFFFF;
+    color: #0D1526;
+    border: 1px solid #D5D9E2;
+    selection-background-color: #EEF0F5;
+    selection-color: #0D1526;
+}
 
 QLineEdit {
     background: #FFFFFF;
@@ -248,6 +270,19 @@ QTabBar::tab:hover:!selected {
 /* ═══ DIALOGS ══════════════════════════════════════════════════════ */
 
 QMessageBox, QProgressDialog, QDialog { background: #FFFFFF; }
+
+/* Barre de progression (OCR) : couleurs explicites, indépendantes du
+   mode sombre de Windows. */
+QProgressBar {
+    background: #EEF0F5;
+    border: 1px solid #D5D9E2;
+    border-radius: 2px;
+    text-align: center;
+    color: #0D1526;
+    min-height: 16px;
+}
+
+QProgressBar::chunk { background: #1B3461; }
 
 /* ═══ MENUS ════════════════════════════════════════════════════════ */
 

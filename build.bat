@@ -9,6 +9,11 @@ cd /d "%~dp0"
 
 set "OUTDIR=%CD%\dist"
 set "WORKDIR=%TEMP%\GPDF_build"
+REM PyInstaller genere d'abord dans un dossier LOCAL (hors OneDrive) : ecrire
+REM directement dans dist\ (synchronise) peut produire un exe incomplet
+REM (ex. base_library.zip manquant -> "Failed to start embedded python
+REM interpreter!"). La sortie est ensuite copiee vers dist\ via robocopy.
+set "STAGEDIR=%TEMP%\GPDF_dist"
 
 REM Ferme une eventuelle instance en cours (sinon le .exe est verrouille)
 taskkill /IM PDFManager.exe /F >nul 2>&1
@@ -44,15 +49,20 @@ pip install -r requirements.txt
 if errorlevel 1 goto err_deps
 
 echo.
-echo [3/4] Nettoyage de l'ancienne sortie dist\PDFManager...
-if exist "%OUTDIR%\PDFManager" rmdir /S /Q "%OUTDIR%\PDFManager" >nul 2>&1
-if exist "%OUTDIR%\PDFManager" timeout /t 1 >nul
-if exist "%OUTDIR%\PDFManager" rmdir /S /Q "%OUTDIR%\PDFManager" >nul 2>&1
+echo [3/4] Generation de l'executable avec PyInstaller (dossier local)...
+if exist "%STAGEDIR%\PDFManager" rmdir /S /Q "%STAGEDIR%\PDFManager" >nul 2>&1
+pyinstaller "%CD%\run.py" --name PDFManager --onedir --windowed --noconfirm --clean --icon "%CD%\assets\app_icon.ico" --distpath "%STAGEDIR%" --workpath "%WORKDIR%" --specpath "%WORKDIR%" --add-data "%CD%\tesseract;tesseract" --add-data "%CD%\tessdata;tessdata" --add-data "%CD%\assets;assets" --collect-all PySide6 --collect-submodules fitz
+if errorlevel 1 goto err_build
+
+REM Verification du fichier critique avant copie.
+if not exist "%STAGEDIR%\PDFManager\_internal\base_library.zip" goto err_incomplete
 
 echo.
-echo [4/4] Generation de l'executable avec PyInstaller...
-pyinstaller "%CD%\run.py" --name PDFManager --onedir --windowed --noconfirm --clean --distpath "%OUTDIR%" --workpath "%WORKDIR%" --specpath "%WORKDIR%" --add-data "%CD%\tesseract;tesseract" --add-data "%CD%\tessdata;tessdata" --collect-all PySide6 --collect-submodules fitz
-if errorlevel 1 goto err_build
+echo [4/4] Copie vers dist\PDFManager (robocopy, avec re-essais)...
+robocopy "%STAGEDIR%\PDFManager" "%OUTDIR%\PDFManager" /MIR /R:5 /W:2 /NFL /NDL /NJH >nul
+REM robocopy : code retour inferieur a 8 = succes.
+if errorlevel 8 goto err_copy
+if not exist "%OUTDIR%\PDFManager\_internal\base_library.zip" goto err_copy
 
 echo.
 echo Termine.
@@ -81,7 +91,19 @@ exit /b 1
 
 :err_build
 echo ERREUR lors de la generation PyInstaller.
-echo Astuce : fermez l'application si elle est ouverte, mettez OneDrive en pause,
+echo Astuce : fermez l'application si elle est ouverte, puis relancez build.bat.
+pause
+exit /b 1
+
+:err_incomplete
+echo ERREUR : sortie PyInstaller incomplete (base_library.zip manquant).
+echo Relancez build.bat ; si cela persiste, verifiez l'antivirus.
+pause
+exit /b 1
+
+:err_copy
+echo ERREUR lors de la copie vers dist\PDFManager.
+echo Fermez l'application si elle est ouverte, mettez OneDrive en pause,
 echo puis relancez build.bat.
 pause
 exit /b 1

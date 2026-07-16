@@ -195,6 +195,103 @@ def save_doc_pages(doc: "fitz.Document", page_indices, out_path: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  Surlignage (annotations)
+# --------------------------------------------------------------------------- #
+HIGHLIGHT_COLORS = {
+    "Jaune": (1.0, 0.85, 0.0),
+    "Vert":  (0.35, 0.85, 0.35),
+    "Bleu":  (0.40, 0.70, 1.0),
+    "Rose":  (1.0, 0.45, 0.70),
+}
+
+
+def highlight_zone(doc: "fitz.Document", page_index: int, rect,
+                   color=(1.0, 0.85, 0.0)) -> str:
+    """Surligne la zone `rect` d'une page (coordonnées de la page affichée).
+
+    S'il y a du texte dans la zone, chaque mot est surligné comme dans Acrobat ;
+    sinon (image, schéma…) la zone reçoit un aplat de couleur semi-transparent.
+    Renvoie "texte" ou "zone".
+    """
+    page = doc[page_index]
+    # Le rendu est fait sur la page pivotée ; le texte et les annotations
+    # utilisent les coordonnées de la page NON pivotée.
+    sel = fitz.Rect(rect) * page.derotation_matrix
+    sel.normalize()
+    quads = []
+    for w in page.get_text("words"):
+        r = fitz.Rect(w[:4])
+        inter = r & sel
+        if inter.is_empty:
+            continue
+        # mot retenu si la sélection couvre au moins la moitié de sa hauteur
+        if inter.height >= r.height * 0.5 and inter.width >= min(4.0, r.width):
+            quads.append(r.quad)
+    if quads:
+        annot = page.add_highlight_annot(quads)
+        annot.set_colors(stroke=color)
+        annot.update()
+        return "texte"
+    annot = page.add_rect_annot(sel)
+    annot.set_colors(stroke=color, fill=color)
+    annot.set_border(width=0)
+    annot.set_opacity(0.35)
+    annot.update()
+    return "zone"
+
+
+def remove_highlights(doc: "fitz.Document", indices) -> int:
+    """Supprime les surlignages (texte et zone) des pages indiquées.
+
+    Renvoie le nombre d'annotations supprimées.
+    """
+    removed = 0
+    types = (fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_SQUARE)
+    for i in indices:
+        page = doc[i]
+        while True:
+            annot = next(page.annots(types=types), None)
+            if annot is None:
+                break
+            page.delete_annot(annot)
+            removed += 1
+    return removed
+
+
+# --------------------------------------------------------------------------- #
+#  Copier / coller de pages (presse-papiers interne)
+# --------------------------------------------------------------------------- #
+def copy_pages_to_bytes(doc: "fitz.Document", indices) -> bytes:
+    """Sérialise les pages indiquées (dans l'ordre donné) en un PDF (octets).
+
+    Le résultat est autonome : il reste valable même si le document source
+    est modifié ou fermé ensuite.
+    """
+    out = fitz.open()
+    try:
+        for idx in indices:
+            out.insert_pdf(doc, from_page=idx, to_page=idx)
+        return out.tobytes(garbage=2, deflate=True)
+    finally:
+        out.close()
+
+
+def paste_pages_from_bytes(doc: "fitz.Document", data: bytes, at: int) -> int:
+    """Insère les pages du presse-papiers (octets PDF) à la position `at`
+    (0-based ; `at = page_count` pour coller à la fin).
+
+    Renvoie le nombre de pages insérées.
+    """
+    src = fitz.open("pdf", data)
+    try:
+        n = src.page_count
+        doc.insert_pdf(src, start_at=at)
+        return n
+    finally:
+        src.close()
+
+
+# --------------------------------------------------------------------------- #
 #  Recherche plein texte
 # --------------------------------------------------------------------------- #
 def search_in_file(path: str, query: str):

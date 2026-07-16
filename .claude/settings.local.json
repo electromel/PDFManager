@@ -2,7 +2,31 @@
   "permissions": {
     "allow": [
       "Skill(frontend-design)",
-      "Bash(Select-Object -First 40)"
+      "Bash(Select-Object -First 40)",
+      "Bash(python -c ' *)",
+      "Bash(python test_features.py)",
+      "Bash(python -)",
+      "Bash(python test_viewer.py)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(python -u test_viewer.py)",
+      "Bash(python -u -)",
+      "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")",
+      "Bash(python -c \"import PySide6; print\\('PySide6 ok'\\)\")",
+      "Bash(python \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\make_icon.py\")",
+      "Bash(python -m py_compile pdf_manager/viewer.py pdf_manager/main.py)",
+      "Bash(.venv/Scripts/python.exe -c \"import PySide6; print\\('venv PySide6 OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\smoke_test.py\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\repro_paste.py\")",
+      "Bash(python -m py_compile pdf_manager/viewer.py)",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\repro_dnd.py\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\debug_events.py\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\minimal_dnd.py\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\bisect_dnd.py\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\multi_select.py\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\reyna\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-reyna-OneDrive-Documents-Claude-PDFManager\\\\b0b248ae-7e25-42ee-86c0-e6dde37e22fe\\\\scratchpad\\\\clicks_test.py\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
