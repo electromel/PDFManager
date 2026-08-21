@@ -2,12 +2,17 @@
 main.py
 =======
 Point d'entrée de l'application PDF Manager.
+
+Les chemins de PDF passés en ligne de commande sont ouverts au démarrage :
+c'est ce qui permet le « Ouvrir avec » de l'explorateur Windows (ainsi que
+le glisser-déposer d'un PDF sur PDFManager.exe).
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from typing import List
 
 
 def _app_icon_path() -> str:
@@ -44,6 +49,22 @@ def _light_palette():
     return pal
 
 
+def _pdf_args(argv: List[str]) -> List[str]:
+    """Chemins de PDF existants passés en argument (« Ouvrir avec » Windows).
+
+    Les options éventuelles (commençant par « - ») et les fichiers non PDF ou
+    introuvables sont ignorés ; les chemins relatifs sont rendus absolus car
+    l'explorateur ne lance pas forcément l'application depuis leur dossier."""
+    paths: List[str] = []
+    for arg in argv:
+        if arg.startswith("-"):
+            continue
+        path = os.path.abspath(arg)
+        if path.lower().endswith(".pdf") and os.path.isfile(path):
+            paths.append(path)
+    return paths
+
+
 def main() -> int:
     from PySide6.QtWidgets import QApplication
     from .library import LibraryWindow
@@ -62,6 +83,9 @@ def main() -> int:
     app.setStyleSheet(APP_QSS)
     win = LibraryWindow()
     win.show()
+    startup = _pdf_args(sys.argv[1:])
+    if startup:
+        win.open_files(startup)
     return app.exec()
 
 

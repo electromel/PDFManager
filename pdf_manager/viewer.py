@@ -10,7 +10,7 @@ Ouverture (double-clic) :
 Édition (mode vignettes) :
 - sélection multiple de pages (Ctrl/Maj + clic) ;
 - rotation : pages sélectionnées, ou tout le document si rien n'est sélectionné ;
-- suppression des pages sélectionnées ;
+- suppression des pages sélectionnées (bouton corbeille ou touche Suppr) ;
 - réorganisation par glisser-déposer : pendant le glisser, une barre bleue
   entre deux vignettes montre précisément où les pages seront insérées ;
 - copier / couper / coller de pages (Ctrl+C/X/V), y compris vers un autre
@@ -605,7 +605,8 @@ class ViewerWindow(QMainWindow):
                 "(Maj+clic : plage) • glisser la sélection pour réordonner "
                 "• clic entre 2 pages : point d'insertion du collage "
                 "• clic droit : pivoter / copier / coller / supprimer / découper "
-                "• Ctrl+C/X/V : copier, couper, coller des pages"
+                "• Ctrl+C/X/V : copier, couper, coller des pages "
+                "• Suppr : supprimer les pages sélectionnées"
             )
 
     def _build_toolbar(self):
@@ -670,8 +671,11 @@ class ViewerWindow(QMainWindow):
         tb.addWidget(rot_btn)
 
         self.act_del = QAction(icons.icon("trash"), "", self)
-        self.act_del.setToolTip("Supprimer la/les page(s) sélectionnée(s)")
+        self.act_del.setToolTip("Supprimer la/les page(s) sélectionnée(s)  (Suppr)")
+        self.act_del.setShortcut(QKeySequence.Delete)
+        self.act_del.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.act_del.triggered.connect(self.delete_selected)
+        self.addAction(self.act_del)   # raccourci actif quand le focus est ici
         tb.addAction(self.act_del)
         tb.addSeparator()
 

@@ -16,6 +16,11 @@ bibliothèques requises sont embarqués).
 ### Bibliothèque (écran principal)
 
 - **Ajout de PDF** par glisser-déposer ou via le bouton « Ajouter des PDF ».
+- **Ouverture depuis l'explorateur Windows** : clic droit sur un PDF →
+  **« Ouvrir avec »** → `PDFManager.exe` (voir §5). Le document est ajouté à la
+  bibliothèque et affiché aussitôt dans la visionneuse. Fonctionne aussi en
+  déposant un PDF sur `PDFManager.exe`, ou en ligne de commande :
+  `PDFManager.exe "C:\chemin\document.pdf"`.
 - **Vignettes** de la première page de chaque document.
 - **Sélection multiple numérotée** : un `1` apparaît sur le premier document
   sélectionné, puis `2`, `3`… ; recliquer sur un document le désélectionne et
@@ -37,7 +42,9 @@ bibliothèques requises sont embarqués).
   **après** cette page.
 - **Rotation** des pages (90° / 180°, sens horaire / anti-horaire) : pages
   sélectionnées, ou tout le document si rien n'est sélectionné.
-- **Suppression** d'une ou plusieurs pages sélectionnées.
+- **Suppression** d'une ou plusieurs pages sélectionnées : bouton corbeille ou
+  touche **`Suppr`** (une confirmation est demandée ; supprimer *toutes* les
+  pages est refusé).
 - **Réorganisation** des pages par glisser-déposer (mode vignettes).
 - **Surlignage** (comme Acrobat) : bouton surligneur puis glisser à la souris —
   sur du **texte**, chaque mot est surligné ; sur une **image/zone sans texte**,
@@ -103,7 +110,24 @@ Tesseract installé sur le PC).
 
 ---
 
-## 5. Structure du projet
+## 5. Associer les PDF à PDF Manager (« Ouvrir avec »)
+
+L'exécutable accepte un chemin de PDF en argument : il apparaît donc dans le
+menu **« Ouvrir avec »** de Windows dès qu'on le lui a désigné une fois.
+
+1. Clic droit sur un fichier PDF → **Ouvrir avec** → **Choisir une autre
+   application**.
+2. **Plus d'applications** → **Rechercher une autre application sur ce PC**.
+3. Sélectionnez `dist\PDFManager\PDFManager.exe`.
+4. Cochez éventuellement *Toujours utiliser cette application* pour en faire le
+   lecteur PDF par défaut.
+
+> Chaque « Ouvrir avec » démarre une nouvelle instance de l'application ; évitez
+> d'éditer et d'enregistrer le même document depuis deux fenêtres à la fois.
+
+---
+
+## 6. Structure du projet
 
 ```
 PDFManager/
@@ -126,7 +150,7 @@ PDFManager/
 
 ---
 
-## 6. Développement
+## 7. Développement
 
 Application développée avec **Claude Opus 4.8** (Anthropic).
 

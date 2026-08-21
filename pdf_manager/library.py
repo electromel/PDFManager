@@ -621,6 +621,17 @@ class LibraryWindow(QMainWindow):
                 "ou double-cliquez sur sa vignette."
             )
 
+    def open_files(self, paths: List[str]):
+        """Ouvre des documents demandés depuis l'extérieur : ligne de commande,
+        « Ouvrir avec » de Windows, glisser-déposer sur l'exécutable.
+
+        Les fichiers sont ajoutés à la bibliothèque (s'ils n'y sont pas déjà)
+        puis affichés dans le volet de droite."""
+        self.add_paths(paths)
+        for path in paths:
+            if path in self._cards:
+                self.open_viewer(path)
+
     def open_viewer(self, path: str):
         from .viewer import ViewerWindow
         # Onglet déjà ouvert pour ce document ?
