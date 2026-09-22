@@ -24,9 +24,26 @@ Ouverture (double-clic) :
 - point d'insertion pour le collage : cliquer sur la ligne entre deux pages
   la sélectionne (ligne dorée) ; Ctrl+V colle alors à cet endroit précis.
 
-Surlignage (mode continu) : bouton surligneur puis glisser à la souris —
-texte surligné mot à mot (comme Acrobat) ou aplat semi-transparent sur une
-image/zone sans texte ; couleur au choix ; effacement possible.
+Annotation (mode continu) — six outils réunis dans un bloc de la barre
+d'outils ; ils s'excluent mutuellement et se quittent par Échap :
+- reprise : clic sur une annotation pour la sélectionner, glisser pour la
+  déplacer, double-clic pour changer ses attributs, Suppr pour l'effacer
+  (une seule annotation, sans toucher aux autres) ;
+- sélection de texte : glisser sur le texte du document, puis Ctrl+C pour le
+  copier ou clic droit pour le surligner (PDF texte uniquement) ;
+- surligneur : « Sélection » (glisser sur du texte : chaque mot est surligné
+  comme dans Acrobat ; sur une image ou une page scannée : aplat teinté) ou
+  « Marqueur » (trait libre, qui fonctionne aussi sur un PDF image) ;
+- texte : clic pour poser un texte, double-clic sur un texte existant pour le
+  modifier (contenu, police, corps, couleur, fond), glisser pour le déplacer ;
+- dessin : main levée, ligne droite, flèche, rectangle ou ellipse, avec
+  couleur, épaisseur et remplissage au choix ;
+- cases à cocher : clic sur une case de formulaire pour la (dé)cocher, ou
+  pose d'une coche dessinée sur une case imprimée (PDF image).
+Clic droit sur une page : modifier / déplacer / supprimer l'annotation sous le
+curseur, agir sur la sélection de texte, ou effacer une famille d'annotations.
+Toutes sont de vraies annotations PDF, conservées à l'enregistrement et
+modifiables d'une session à l'autre.
 
 Le document est édité en mémoire ; « Enregistrer sous… » écrit un nouveau PDF
 compressé (proposition de nom, option de suppression de la source). OCR possible.
@@ -34,22 +51,24 @@ compressé (proposition de nom, option de suppression de la source). OCR possibl
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 import time
 from typing import List, Optional
 
 import fitz
-from PySide6.QtCore import Qt, QMimeData, QRect, QSize, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QMimeData, QPointF, QRect, QSize, QThread, QTimer, Signal
 from PySide6.QtGui import (
-    QAction, QColor, QDrag, QKeySequence, QMouseEvent, QPainter, QPen,
-    QPixmap, QIcon,
+    QAction, QActionGroup, QColor, QDrag, QKeySequence, QMouseEvent, QPainter,
+    QPainterPath, QPen, QPixmap, QPolygonF, QIcon,
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QListWidget, QListWidgetItem, QListView,
     QToolBar, QFileDialog, QMessageBox, QStackedWidget, QScrollArea, QWidget,
     QVBoxLayout, QLabel, QMenu, QProgressDialog, QComboBox, QToolButton,
-    QButtonGroup, QFrame, QHBoxLayout, QRubberBand,
+    QButtonGroup, QFrame, QHBoxLayout, QDialog, QDialogButtonBox, QFormLayout,
+    QPlainTextEdit, QCheckBox,
 )
 
 from . import pdf_ops, ocr, icons
@@ -67,6 +86,107 @@ ZOOM_MAX = 5.0
 
 # Type MIME interne pour le glisser-déposer de pages en mode continu.
 _MIME_PAGES = "application/x-pdfmanager-pages"
+
+# Outils d'annotation. Un seul est actif à la fois (None = pas d'outil : les
+# clics servent alors à sélectionner et à réordonner les pages).
+TOOL_PICK = "pick"               # reprendre une annotation : déplacer, modifier
+TOOL_TEXT_SELECT = "text_select" # sélectionner le texte du document
+TOOL_HL_SELECT = "hl_select"     # surligneur : glisser sur du texte ou une zone
+TOOL_HL_PEN = "hl_pen"           # surligneur : trait de marqueur à main levée
+TOOL_TEXT = "text"               # poser / modifier / déplacer un texte
+TOOL_CHECK = "check"             # cocher une case (formulaire ou imprimée)
+TOOL_INK = "ink"                 # dessin à main levée
+TOOL_LINE = "line"
+TOOL_ARROW = "arrow"
+TOOL_RECT = "rect"
+TOOL_ELLIPSE = "ellipse"
+
+DRAW_TOOLS = (TOOL_INK, TOOL_LINE, TOOL_ARROW, TOOL_RECT, TOOL_ELLIPSE)
+FREEHAND_TOOLS = (TOOL_INK, TOOL_HL_PEN)
+
+# Couleur de la sélection de texte et des poignées de l'annotation reprise.
+SELECT_COLOR = QColor(27, 52, 97)
+
+# Nom donné à chaque famille d'annotation dans les messages et les menus.
+FAMILY_LABELS = {"text": "Texte", "draw": "Tracé", "highlight": "Surlignage"}
+
+# Libellé et icône de chaque forme du menu « Dessiner ».
+DRAW_SHAPES = (
+    (TOOL_INK, "Main levée", "pen"),
+    (TOOL_LINE, "Ligne droite", "line"),
+    (TOOL_ARROW, "Flèche", "arrow"),
+    (TOOL_RECT, "Rectangle", "square"),
+    (TOOL_ELLIPSE, "Ellipse", "circle"),
+)
+
+# Message de la barre d'état une fois la forme tracée.
+DRAW_DONE = {
+    TOOL_INK: "Tracé ajouté",
+    TOOL_LINE: "Ligne ajoutée",
+    TOOL_ARROW: "Flèche ajoutée",
+    TOOL_RECT: "Rectangle ajouté",
+    TOOL_ELLIPSE: "Ellipse ajoutée",
+}
+
+# Mode d'emploi de chaque outil, affiché dans la barre d'état à l'activation.
+TOOL_HINTS = {
+    TOOL_PICK: "Reprise : cliquez une annotation pour la sélectionner, "
+               "glissez-la pour la déplacer, double-cliquez pour changer ses "
+               "attributs, Suppr pour l'effacer.",
+    TOOL_TEXT_SELECT: "Sélection de texte : glissez sur le texte du document, "
+                      "puis Ctrl+C pour le copier ou clic droit pour le "
+                      "surligner.",
+    TOOL_CHECK: "Cases à cocher : cliquez une case de formulaire pour la "
+                "(dé)cocher ; sur une case imprimée (PDF image), le clic ou le "
+                "glisser pose une coche.",
+    TOOL_HL_SELECT: "Surligneur : glissez sur du texte (chaque mot est "
+                    "surligné) ou sur une image/zone (aplat teinté).",
+    TOOL_HL_PEN: "Marqueur : glissez pour passer un trait de surlignage, "
+                 "même sur un PDF image (page scannée).",
+    TOOL_TEXT: "Texte : cliquez pour en poser un, double-cliquez sur un texte "
+               "existant pour le modifier, glissez-le pour le déplacer.",
+    TOOL_INK: "Dessin à main levée : glissez pour tracer.",
+    TOOL_LINE: "Ligne droite : glissez du début à la fin du trait.",
+    TOOL_ARROW: "Flèche : glissez de la base vers la pointe.",
+    TOOL_RECT: "Rectangle : glissez d'un coin à l'autre.",
+    TOOL_ELLIPSE: "Ellipse : glissez d'un coin à l'autre du cadre.",
+}
+
+
+def select_combo(box: QComboBox, value, missing_label: str = "",
+                 missing_icon: Optional[QIcon] = None):
+    """Sélectionne l'entrée portant `value`.
+
+    Si la valeur ne fait pas partie de la liste (annotation venue d'un autre
+    logiciel, épaisseur inhabituelle…), elle y est ajoutée : rouvrir le
+    dialogue ne doit pas changer silencieusement la mise en forme.
+    """
+    for i in range(box.count()):
+        if box.itemData(i) == value:
+            box.setCurrentIndex(i)
+            return
+    if missing_label:
+        if missing_icon is not None:
+            box.insertItem(0, missing_icon, missing_label, value)
+        else:
+            box.insertItem(0, missing_label, value)
+    box.setCurrentIndex(0)
+
+
+def color_swatch(rgb, size: int = 18) -> QIcon:
+    """Pastille de couleur pour les menus (couleur au format PDF 0..1)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setBrush(QColor("#FFFFFF") if rgb is None else QColor.fromRgbF(*rgb))
+    p.setPen(QColor("#8F99AD"))
+    p.drawRoundedRect(1, 1, size - 3, size - 3, 3, 3)
+    if rgb is None:                      # « aucun » : barre oblique
+        p.setPen(QPen(QColor("#C0392B"), 2))
+        p.drawLine(3, size - 4, size - 4, 3)
+    p.end()
+    return QIcon(pm)
 
 
 class OcrWorker(QThread):
@@ -227,23 +347,52 @@ class _ContColumn(QWidget):
 
 class _ContPage(QLabel):
     """Page affichée en mode continu : cliquable (sélection), déplaçable par
-    glisser-déposer (réorganisation) et, en mode surligneur, sélection d'une
-    zone à la souris (bande élastique)."""
+    glisser-déposer (réorganisation) et, quand un outil d'annotation est actif,
+    surface de tracé (l'aperçu du tracé en cours est dessiné par-dessus la page).
+    """
     clicked = Signal(int)
-    regionSelected = Signal(int, object)   # (index page, QRect en coords label)
+    toolUsed = Signal(int, str, object)     # (page, outil, points en coords label)
+    contextRequested = Signal(int, object)  # (page, position en coords label)
+    doubleClicked = Signal(int, object)     # (page, position en coords label)
 
-    def __init__(self, index: int, highlight_mode=lambda: False,
-                 drag_set=None):
+    def __init__(self, index: int, tool=lambda: None, drag_set=None,
+                 selector=None, picker=None):
         super().__init__()
         self._index = index
         self._sel = False
-        self._hl_mode = highlight_mode      # callable -> bool
+        self._tool = tool                  # callable -> outil actif (ou None)
         self._drag_set = drag_set or (lambda i: [i])   # callable -> indices à déplacer
-        self._band: Optional[QRubberBand] = None
-        self._press_pos = None
+        self._selector = selector          # callable(page, départ, courant) -> [QRect]
+        self._picker = picker              # callable(page, position) -> QRect | None
         self._drag_origin = None
+        self._active_tool: Optional[str] = None
+        self._pts: List = []               # tracé en cours (coords label)
+        self._pen_color = QColor("#1B3461")
+        self._pen_width = 2.0              # épaisseur d'aperçu, en pixels écran
+        self._pen_fill: Optional[QColor] = None
+        self._text_rects: List[QRect] = []       # sélection de texte affichée
+        self._pick_rect: Optional[QRect] = None  # annotation reprise
         self.setAlignment(Qt.AlignCenter)
         self._restyle()
+
+    def set_pen(self, color: QColor, width: float, fill: Optional[QColor]):
+        """Style de l'aperçu du tracé (couleur et épaisseur de l'outil actif)."""
+        self._pen_color = color
+        self._pen_width = max(1.0, width)
+        self._pen_fill = fill
+
+    def set_text_rects(self, rects):
+        """Rectangles de la sélection de texte à afficher sur cette page."""
+        rects = list(rects or [])
+        if rects != self._text_rects:
+            self._text_rects = rects
+            self.update()
+
+    def set_pick_rect(self, rect: Optional[QRect]):
+        """Cadre de l'annotation reprise (poignées), ou None."""
+        if rect != self._pick_rect:
+            self._pick_rect = rect
+            self.update()
 
     def _restyle(self):
         if self._sel:
@@ -266,12 +415,17 @@ class _ContPage(QLabel):
             self._restyle()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self._hl_mode():
-            self._press_pos = event.pos()
-            if self._band is None:
-                self._band = QRubberBand(QRubberBand.Rectangle, self)
-            self._band.setGeometry(QRect(self._press_pos, QSize()))
-            self._band.show()
+        tool = self._tool()
+        if event.button() == Qt.LeftButton and tool:
+            self._active_tool = tool
+            self._pts = [event.pos()]
+            if tool == TOOL_PICK and self._picker is not None:
+                # La reprise sélectionne dès l'appui : le cadre suit ensuite la
+                # souris, ce qui montre où l'annotation va atterrir.
+                self._pick_rect = self._picker(self._index, event.pos())
+            elif tool == TOOL_TEXT_SELECT:
+                self._text_rects = []
+            self.update()
             event.accept()
             return
         if event.button() == Qt.LeftButton:
@@ -283,8 +437,20 @@ class _ContPage(QLabel):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._press_pos is not None and self._band is not None:
-            self._band.setGeometry(QRect(self._press_pos, event.pos()).normalized())
+        if self._active_tool is not None:
+            pos = event.pos()
+            if self._active_tool in FREEHAND_TOOLS:
+                # Tracé libre : on ne garde que les points réellement distincts.
+                if (pos - self._pts[-1]).manhattanLength() >= 2:
+                    self._pts.append(pos)
+            else:
+                self._pts = [self._pts[0], pos]
+                if (self._active_tool == TOOL_TEXT_SELECT
+                        and self._selector is not None):
+                    # Sélection montrée au fil du glisser, comme dans Acrobat.
+                    self._text_rects = self._selector(self._index,
+                                                      self._pts[0], pos)
+            self.update()
             event.accept()
             return
         if (self._drag_origin is not None
@@ -297,14 +463,13 @@ class _ContPage(QLabel):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._press_pos is not None and event.button() == Qt.LeftButton:
-            rect = QRect(self._press_pos, event.pos()).normalized()
-            self._band.hide()
-            self._press_pos = None
-            if rect.width() < 5 and rect.height() < 5:
-                self.clicked.emit(self._index)   # simple clic : (dé)sélection
-            else:
-                self.regionSelected.emit(self._index, rect)
+        if self._active_tool is not None and event.button() == Qt.LeftButton:
+            tool, pts = self._active_tool, list(self._pts)
+            self._active_tool, self._pts = None, []
+            self.update()
+            if len(pts) == 1:
+                pts.append(pts[0])           # simple clic : début = fin
+            self.toolUsed.emit(self._index, tool, pts)
             event.accept()
             return
         if self._drag_origin is not None and event.button() == Qt.LeftButton:
@@ -313,6 +478,129 @@ class _ContPage(QLabel):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.doubleClicked.emit(self._index, event.pos())
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event):
+        self.contextRequested.emit(self._index, event.pos())
+        event.accept()
+
+    def paintEvent(self, event):
+        """Page, puis les repères qui ne sont pas dans le PDF : sélection de
+        texte, annotation reprise, et aperçu du tracé en cours (celui-ci n'est
+        écrit dans le PDF qu'au relâchement du bouton)."""
+        super().paintEvent(event)
+        self._paint_overlays()
+        if self._active_tool is None or len(self._pts) < 2:
+            return
+        tool = self._active_tool
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        rect = QRect(self._pts[0], self._pts[-1]).normalized()
+        if tool == TOOL_PICK:
+            if self._pick_rect is not None:
+                # Le cadre suit la souris : aperçu du déplacement.
+                delta = self._pts[-1] - self._pts[0]
+                p.setPen(QPen(SELECT_COLOR, 1, Qt.DashLine))
+                p.setBrush(Qt.NoBrush)
+                p.drawRect(self._pick_rect.translated(delta))
+        elif tool == TOOL_TEXT_SELECT:
+            pass                       # la sélection est peinte par _paint_overlays
+        elif tool == TOOL_CHECK:
+            p.setPen(QPen(self._pen_color, max(1.5, self._pen_width), Qt.SolidLine,
+                          Qt.RoundCap, Qt.RoundJoin))
+            self._draw_check(p, rect)
+        elif tool == TOOL_HL_SELECT:
+            wash = QColor(self._pen_color)
+            wash.setAlpha(80)
+            p.fillRect(rect, wash)
+            p.setPen(QPen(self._pen_color.darker(140), 1, Qt.DashLine))
+            p.drawRect(rect)
+        elif tool == TOOL_TEXT:
+            p.setPen(QPen(QColor("#1B3461"), 1, Qt.DashLine))
+            p.drawRect(rect)
+        elif tool in FREEHAND_TOOLS:
+            color = QColor(self._pen_color)
+            if tool == TOOL_HL_PEN:
+                color.setAlpha(110)
+            p.setPen(QPen(color, self._pen_width, Qt.SolidLine,
+                          Qt.RoundCap, Qt.RoundJoin))
+            path = QPainterPath(QPointF(self._pts[0]))
+            for pt in self._pts[1:]:
+                path.lineTo(QPointF(pt))
+            p.drawPath(path)
+        else:
+            p.setPen(QPen(self._pen_color, self._pen_width, Qt.SolidLine,
+                          Qt.RoundCap, Qt.RoundJoin))
+            p.setBrush(self._pen_fill or Qt.NoBrush)
+            if tool == TOOL_RECT:
+                p.drawRect(rect)
+            elif tool == TOOL_ELLIPSE:
+                p.drawEllipse(rect)
+            else:
+                p.drawLine(self._pts[0], self._pts[-1])
+                if tool == TOOL_ARROW:
+                    self._draw_arrow_head(p)
+        p.end()
+
+    def _paint_overlays(self):
+        """Sélection de texte et annotation reprise : repères d'écran, jamais
+        écrits dans le PDF."""
+        if not self._text_rects and self._pick_rect is None:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if self._text_rects:
+            wash = QColor(SELECT_COLOR)
+            wash.setAlpha(60)
+            p.setPen(Qt.NoPen)
+            p.setBrush(wash)
+            for r in self._text_rects:
+                p.drawRect(r)
+        if self._pick_rect is not None and self._active_tool != TOOL_PICK:
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(SELECT_COLOR, 1, Qt.DashLine))
+            p.drawRect(self._pick_rect)
+            p.setPen(Qt.NoPen)
+            p.setBrush(SELECT_COLOR)
+            r = self._pick_rect
+            for x, y in ((r.left(), r.top()), (r.right(), r.top()),
+                         (r.left(), r.bottom()), (r.right(), r.bottom())):
+                p.drawRect(QRect(x - 3, y - 3, 7, 7))
+        p.end()
+
+    @staticmethod
+    def _draw_check(painter: QPainter, rect: QRect):
+        """Aperçu de la coche, aux mêmes proportions que celle écrite au PDF."""
+        if rect.width() < 4 or rect.height() < 4:
+            rect = QRect(rect.left(), rect.top(), 18, 18)
+        w, h = rect.width(), rect.height()
+        path = QPainterPath(QPointF(rect.left() + w * 0.12, rect.top() + h * 0.55))
+        path.lineTo(QPointF(rect.left() + w * 0.40, rect.top() + h * 0.86))
+        path.lineTo(QPointF(rect.left() + w * 0.90, rect.top() + h * 0.14))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
+
+    def _draw_arrow_head(self, painter: QPainter):
+        """Pointe de la flèche dans l'aperçu (le PDF, lui, la dessine seul)."""
+        start, end = QPointF(self._pts[0]), QPointF(self._pts[-1])
+        dx, dy = end.x() - start.x(), end.y() - start.y()
+        length = math.hypot(dx, dy)
+        if length < 1:
+            return
+        size = max(8.0, self._pen_width * 4)
+        angle = math.atan2(dy, dx)
+        p1 = QPointF(end.x() - size * math.cos(angle - 0.4),
+                     end.y() - size * math.sin(angle - 0.4))
+        p2 = QPointF(end.x() - size * math.cos(angle + 0.4),
+                     end.y() - size * math.sin(angle + 0.4))
+        painter.setBrush(self._pen_color)
+        painter.drawPolygon(QPolygonF([end, p1, p2]))
 
     def _start_drag(self):
         indices = self._drag_set(self._index)
@@ -531,6 +819,150 @@ class _ThumbList(QListWidget):
             self.gapClicked.emit(self._insertion_pos(event.position().toPoint()))
 
 
+class _TextDialog(QDialog):
+    """Saisie ou modification d'un texte posé sur une page.
+
+    La mise en forme est enregistrée dans l'annotation elle-même : rouvrir ce
+    dialogue sur un texte existant restitue sa police, son corps, sa couleur
+    et son fond, et permet donc de le ré-éditer autant de fois que voulu.
+    """
+
+    def __init__(self, parent, style: dict, text: str = "", editing: bool = False):
+        super().__init__(parent)
+        self.setWindowTitle("Modifier le texte" if editing else "Ajouter un texte")
+        self.setMinimumWidth(430)
+        self.deleted = False
+
+        self.edit = QPlainTextEdit(text)
+        self.edit.setPlaceholderText("Texte à afficher sur la page…")
+        self.edit.setMinimumHeight(90)
+
+        self.font_box = QComboBox()
+        for label, code in pdf_ops.TEXT_FONTS.items():
+            self.font_box.addItem(label, code)
+        select_combo(self.font_box, style.get("font") or "helv")
+
+        self.size_box = QComboBox()
+        for pt in pdf_ops.TEXT_SIZES:
+            self.size_box.addItem(f"{pt} pt", float(pt))
+        select_combo(self.size_box, float(style.get("size") or 12.0))
+
+        self.color_box = QComboBox()
+        for name, rgb in pdf_ops.DRAW_COLORS.items():
+            self.color_box.addItem(color_swatch(rgb), name, rgb)
+        current = tuple(style.get("color") or (0.0, 0.0, 0.0))
+        select_combo(self.color_box, current, missing_label="Couleur actuelle",
+                     missing_icon=color_swatch(current))
+
+        self.fill_box = QCheckBox(
+            "Fond blanc opaque (masque ce qu'il y a dessous)")
+        self.fill_box.setChecked(bool(style.get("fill")))
+
+        form = QFormLayout(self)
+        form.addRow("Texte", self.edit)
+        form.addRow("Police", self.font_box)
+        form.addRow("Corps", self.size_box)
+        form.addRow("Couleur", self.color_box)
+        form.addRow("", self.fill_box)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Valider")
+        buttons.button(QDialogButtonBox.Cancel).setText("Annuler")
+        if editing:
+            remove = buttons.addButton("Supprimer",
+                                       QDialogButtonBox.DestructiveRole)
+            remove.clicked.connect(self._on_delete)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+        self.edit.setFocus()
+
+    def _on_delete(self):
+        self.deleted = True
+        self.accept()
+
+    def values(self) -> dict:
+        return {
+            "text": self.edit.toPlainText(),
+            "font": self.font_box.currentData(),
+            "size": float(self.size_box.currentData()),
+            "color": tuple(self.color_box.currentData()),
+            "fill": (1.0, 1.0, 1.0) if self.fill_box.isChecked() else None,
+        }
+
+
+class _ShapeDialog(QDialog):
+    """Attributs d'un tracé ou d'un surlignage déjà posé.
+
+    Ouvert par un double-clic sur l'annotation (ou par le clic droit), il
+    permet de reprendre sa couleur, son épaisseur et son remplissage sans
+    avoir à l'effacer et à la refaire.
+    """
+
+    def __init__(self, parent, style: dict, family: str = "draw"):
+        super().__init__(parent)
+        self.family = family
+        self.setWindowTitle("Modifier le surlignage" if family == "highlight"
+                            else "Modifier le tracé")
+        self.setMinimumWidth(380)
+        self.deleted = False
+
+        colors = (pdf_ops.HIGHLIGHT_COLORS if family == "highlight"
+                  else pdf_ops.DRAW_COLORS)
+        widths = (pdf_ops.HIGHLIGHT_WIDTHS if family == "highlight"
+                  else pdf_ops.DRAW_WIDTHS)
+
+        self.color_box = QComboBox()
+        for name, rgb in colors.items():
+            self.color_box.addItem(color_swatch(rgb), name, rgb)
+        current = tuple(style.get("color") or (0.0, 0.0, 0.0))
+        select_combo(self.color_box, current, missing_label="Couleur actuelle",
+                     missing_icon=color_swatch(current))
+
+        self.width_box = QComboBox()
+        for name, value in widths.items():
+            self.width_box.addItem(f"{name} ({value:g} pt)", float(value))
+        width = float(style.get("width") or 0.0)
+        select_combo(self.width_box, width,
+                     missing_label=f"Actuelle ({width:g} pt)")
+
+        form = QFormLayout(self)
+        form.addRow("Couleur", self.color_box)
+        form.addRow("Épaisseur", self.width_box)
+
+        self.fill_box = None
+        if family == "draw":
+            self.fill_box = QComboBox()
+            for name, rgb in [("Aucun", None)] + list(pdf_ops.DRAW_COLORS.items()):
+                self.fill_box.addItem(color_swatch(rgb), name, rgb)
+            fill = style.get("fill")
+            select_combo(self.fill_box, tuple(fill) if fill else None,
+                         missing_label="Remplissage actuel",
+                         missing_icon=color_swatch(fill))
+            form.addRow("Remplissage", self.fill_box)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Valider")
+        buttons.button(QDialogButtonBox.Cancel).setText("Annuler")
+        remove = buttons.addButton("Supprimer", QDialogButtonBox.DestructiveRole)
+        remove.clicked.connect(self._on_delete)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def _on_delete(self):
+        self.deleted = True
+        self.accept()
+
+    def values(self) -> dict:
+        return {
+            "color": tuple(self.color_box.currentData()),
+            "width": float(self.width_box.currentData()),
+            # False = remplissage inchangé (les surlignages n'en ont pas).
+            "fill": self.fill_box.currentData() if self.fill_box else False,
+        }
+
+
 class ViewerWindow(QMainWindow):
     titleChanged = Signal()
 
@@ -541,9 +973,23 @@ class ViewerWindow(QMainWindow):
         self.doc = fitz.open(path)        # document de travail (édité en mémoire)
         self._zoom = 1.0
         self._dirty = False
-        self._hl_mode = False
-        self._hl_color = pdf_ops.HIGHLIGHT_COLORS["Jaune"]
         self._insert_pos: Optional[int] = None   # point d'insertion du collage
+
+        # --- Outils d'annotation (un seul actif à la fois) ---
+        self._tool: Optional[str] = None
+        self._hl_kind = TOOL_HL_SELECT            # mode du surligneur
+        self._hl_color = pdf_ops.HIGHLIGHT_COLORS["Jaune"]
+        self._hl_width = pdf_ops.HIGHLIGHT_WIDTHS["Moyen"]
+        self._draw_kind = TOOL_INK                # forme du dessin
+        self._draw_color = pdf_ops.DRAW_COLORS["Rouge"]
+        self._draw_width = pdf_ops.DRAW_WIDTHS["Moyen"]
+        self._draw_fill = None
+        # Mise en forme reprise d'un texte à l'autre.
+        self._text_style = {"font": "helv", "size": 12.0,
+                            "color": (0.0, 0.0, 0.0), "fill": None}
+        # Annotation reprise (outil de reprise) et sélection de texte courante.
+        self._picked: Optional[dict] = None
+        self._text_sel: Optional[dict] = None
         self._ocr_worker: Optional[OcrWorker] = None
         self._progress: Optional[QProgressDialog] = None
 
@@ -597,16 +1043,21 @@ class ViewerWindow(QMainWindow):
     def _update_status(self):
         if self.single:
             self.statusBar().showMessage(
-                "Zoom : molette + Ctrl • surligneur dans la barre d'outils"
+                "Zoom : molette + Ctrl • outils d'annotation dans la barre "
+                "d'outils (reprise, sélection de texte, surligneur, texte, "
+                "dessin, cases à cocher) • double-clic sur une annotation : "
+                "la modifier • clic droit sur la page : menu des annotations"
             )
         else:
             self.statusBar().showMessage(
                 "Clic : (dé)sélectionner des pages, même non contiguës "
                 "(Maj+clic : plage) • glisser la sélection pour réordonner "
                 "• clic entre 2 pages : point d'insertion du collage "
-                "• clic droit : pivoter / copier / coller / supprimer / découper "
+                "• clic droit sur une vignette : pivoter / copier / coller / "
+                "supprimer / découper • clic droit sur une page : annotations "
                 "• Ctrl+C/X/V : copier, couper, coller des pages "
                 "• Suppr : supprimer les pages sélectionnées"
+                " • outils d'annotation dans la barre d'outils"
             )
 
     def _build_toolbar(self):
@@ -671,7 +1122,9 @@ class ViewerWindow(QMainWindow):
         tb.addWidget(rot_btn)
 
         self.act_del = QAction(icons.icon("trash"), "", self)
-        self.act_del.setToolTip("Supprimer la/les page(s) sélectionnée(s)  (Suppr)")
+        self.act_del.setToolTip(
+            "Supprimer l'annotation reprise si elle existe, sinon la/les "
+            "page(s) sélectionnée(s)  (Suppr)")
         self.act_del.setShortcut(QKeySequence.Delete)
         self.act_del.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.act_del.triggered.connect(self.delete_selected)
@@ -679,31 +1132,188 @@ class ViewerWindow(QMainWindow):
         tb.addAction(self.act_del)
         tb.addSeparator()
 
-        # Surligneur (comme Acrobat) : bouton bascule + menu de couleurs.
-        self.hl_btn = QToolButton(self)
-        self.hl_btn.setCheckable(True)
+        # ------------------------------------------------------------------
+        # Outils d'annotation, réunis dans un bloc unique (comme le sélecteur
+        # d'affichage) : ils s'excluent mutuellement et le bloc reste compact.
+        tools = QFrame()
+        tools.setObjectName("ToolSwitch")
+        tools_l = QHBoxLayout(tools)
+        tools_l.setContentsMargins(3, 3, 3, 3)
+        tools_l.setSpacing(2)
+
+        def add_tool(button):
+            button.setCheckable(True)
+            button.setIconSize(QSize(22, 22))
+            tools_l.addWidget(button)
+            return button
+
+        # Reprise d'une annotation : sélectionner, déplacer, modifier, effacer.
+        self.pick_btn = add_tool(QToolButton(self))
+        self.pick_btn.setIcon(icons.icon("pointer"))
+        self.pick_btn.setToolTip(
+            "Reprendre une annotation : cliquez-la pour la sélectionner, "
+            "glissez-la pour la déplacer, double-cliquez pour changer ses "
+            "attributs, Suppr pour l'effacer."
+        )
+        self.pick_btn.toggled.connect(
+            lambda on: self._set_tool(TOOL_PICK if on else None))
+
+        # Sélection du texte du document (copier / surligner).
+        self.sel_btn = add_tool(QToolButton(self))
+        self.sel_btn.setIcon(icons.icon("cursor-text"))
+        self.sel_btn.setToolTip(
+            "Sélectionner du texte : glissez sur le texte du document, puis "
+            "Ctrl+C pour le copier ou clic droit pour le surligner "
+            "(PDF texte ; un PDF image doit d'abord passer par l'OCR)."
+        )
+        self.sel_btn.setPopupMode(QToolButton.MenuButtonPopup)
+        self.sel_btn.toggled.connect(
+            lambda on: self._set_tool(TOOL_TEXT_SELECT if on else None))
+        sel_menu = QMenu(self.sel_btn)
+        sel_menu.addAction(icons.icon("copy"), "Copier le texte sélectionné",
+                           self.copy_text_selection)
+        sel_menu.addAction(icons.icon("highlight"),
+                           "Surligner le texte sélectionné",
+                           self.highlight_text_selection)
+        self.sel_btn.setMenu(sel_menu)
+
+        # Surligneur (comme Acrobat) : bouton bascule + menu (mode, couleur…).
+        self.hl_btn = add_tool(QToolButton(self))
         self.hl_btn.setIcon(icons.icon("highlight"))
         self.hl_btn.setToolTip(
             "Surligner : glissez sur du texte (surlignage mot à mot) ou sur "
-            "une image/zone (aplat de couleur). Flèche : choix de la couleur."
+            "une image/zone (aplat de couleur). Flèche : mode marqueur, "
+            "couleur, épaisseur."
         )
         self.hl_btn.setPopupMode(QToolButton.MenuButtonPopup)
-        self.hl_btn.toggled.connect(self._set_highlight_mode)
+        self.hl_btn.toggled.connect(
+            lambda on: self._set_tool(self._hl_kind if on else None))
         hl_menu = QMenu(self.hl_btn)
+        kind_group = QActionGroup(self)
+        for kind, label, tip in (
+            (TOOL_HL_SELECT, "Sélection (texte ou zone)",
+             "Glisser sur du texte : chaque mot est surligné. "
+             "Sur une image ou une page scannée : la zone est teintée."),
+            (TOOL_HL_PEN, "Marqueur (trait libre)",
+             "Passer le marqueur à main levée, comme sur du papier : "
+             "fonctionne aussi sur un PDF image (page scannée)."),
+        ):
+            a = hl_menu.addAction(icons.icon(
+                "highlight" if kind == TOOL_HL_SELECT else "marker"), label)
+            a.setCheckable(True)
+            a.setChecked(kind == self._hl_kind)
+            a.setToolTip(tip)
+            a.triggered.connect(lambda checked=False, k=kind: self._set_hl_kind(k))
+            kind_group.addAction(a)
+        hl_menu.addSeparator()
         self._hl_color_actions = []
         for name, rgb in pdf_ops.HIGHLIGHT_COLORS.items():
-            a = hl_menu.addAction(self._color_icon(rgb), name)
+            a = hl_menu.addAction(color_swatch(rgb), name)
             a.setCheckable(True)
             a.setChecked(name == "Jaune")
             a.triggered.connect(
                 lambda checked=False, n=name: self._set_highlight_color(n))
             self._hl_color_actions.append(a)
         hl_menu.addSeparator()
+        width_menu = hl_menu.addMenu("Épaisseur du marqueur")
+        self._hl_width_actions = []
+        for name, value in pdf_ops.HIGHLIGHT_WIDTHS.items():
+            a = width_menu.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(value == self._hl_width)
+            a.triggered.connect(
+                lambda checked=False, v=value: self._set_highlight_width(v))
+            self._hl_width_actions.append((a, value))
+        hl_menu.addSeparator()
+        hl_menu.addAction(icons.icon("highlight"),
+                          "Surligner le texte sélectionné",
+                          self.highlight_text_selection)
         hl_menu.addAction(icons.icon("trash"),
                           "Effacer les surlignages (sélection/tout)",
                           self.clear_highlights)
         self.hl_btn.setMenu(hl_menu)
-        tb.addWidget(self.hl_btn)
+
+        # Texte : poser un texte, le modifier (double-clic) ou le déplacer.
+        self.text_btn = add_tool(QToolButton(self))
+        self.text_btn.setIcon(icons.icon("text"))
+        self.text_btn.setToolTip(
+            "Texte : cliquez sur la page pour ajouter un texte, double-cliquez "
+            "sur un texte existant pour le modifier (police, corps, couleur, "
+            "fond), glissez-le pour le déplacer."
+        )
+        self.text_btn.setPopupMode(QToolButton.MenuButtonPopup)
+        self.text_btn.toggled.connect(
+            lambda on: self._set_tool(TOOL_TEXT if on else None))
+        text_menu = QMenu(self.text_btn)
+        text_menu.addAction(icons.icon("trash"),
+                            "Effacer les textes ajoutés (sélection/tout)",
+                            self.clear_texts)
+        self.text_btn.setMenu(text_menu)
+
+        # Dessin : main levée, ligne, flèche, rectangle, ellipse.
+        self.draw_btn = add_tool(QToolButton(self))
+        self.draw_btn.setIcon(icons.icon("pen"))
+        self.draw_btn.setPopupMode(QToolButton.MenuButtonPopup)
+        self.draw_btn.toggled.connect(
+            lambda on: self._set_tool(self._draw_kind if on else None))
+        draw_menu = QMenu(self.draw_btn)
+        shape_group = QActionGroup(self)
+        self._draw_shape_actions = []
+        for kind, label, icon_name in DRAW_SHAPES:
+            a = draw_menu.addAction(icons.icon(icon_name), label)
+            a.setCheckable(True)
+            a.setChecked(kind == self._draw_kind)
+            a.triggered.connect(
+                lambda checked=False, k=kind: self._set_draw_kind(k))
+            shape_group.addAction(a)
+            self._draw_shape_actions.append((a, kind))
+        draw_menu.addSeparator()
+        color_menu = draw_menu.addMenu("Couleur du trait")
+        self._draw_color_actions = []
+        for name, rgb in pdf_ops.DRAW_COLORS.items():
+            a = color_menu.addAction(color_swatch(rgb), name)
+            a.setCheckable(True)
+            a.setChecked(rgb == self._draw_color)
+            a.triggered.connect(
+                lambda checked=False, c=rgb: self._set_draw_color(c))
+            self._draw_color_actions.append((a, rgb))
+        fill_menu = draw_menu.addMenu("Remplissage des formes")
+        self._draw_fill_actions = []
+        for name, rgb in [("Aucun", None)] + list(pdf_ops.DRAW_COLORS.items()):
+            a = fill_menu.addAction(color_swatch(rgb), name)
+            a.setCheckable(True)
+            a.setChecked(rgb == self._draw_fill)
+            a.triggered.connect(
+                lambda checked=False, c=rgb: self._set_draw_fill(c))
+            self._draw_fill_actions.append((a, rgb))
+        thick_menu = draw_menu.addMenu("Épaisseur du trait")
+        self._draw_width_actions = []
+        for name, value in pdf_ops.DRAW_WIDTHS.items():
+            a = thick_menu.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(value == self._draw_width)
+            a.triggered.connect(
+                lambda checked=False, v=value: self._set_draw_width(v))
+            self._draw_width_actions.append((a, value))
+        draw_menu.addSeparator()
+        draw_menu.addAction(icons.icon("trash"),
+                            "Effacer les dessins (sélection/tout)",
+                            self.clear_drawings)
+        self.draw_btn.setMenu(draw_menu)
+        self._refresh_draw_button()
+
+        # Cases à cocher : formulaire (vraie case) ou case imprimée (coche).
+        self.check_btn = add_tool(QToolButton(self))
+        self.check_btn.setIcon(icons.icon("check"))
+        self.check_btn.setToolTip(
+            "Cocher : cliquez une case de formulaire pour la (dé)cocher. "
+            "Sur une case imprimée (PDF image), le clic pose une coche ; "
+            "glissez pour l'ajuster à la taille de la case."
+        )
+        self.check_btn.toggled.connect(
+            lambda on: self._set_tool(TOOL_CHECK if on else None))
+
+        tb.addWidget(tools)
         tb.addSeparator()
 
         # Copier / couper / coller des pages (dans ce document ou un autre).
@@ -804,15 +1414,20 @@ class ViewerWindow(QMainWindow):
             pix = page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
             qpix = QPixmap()
             qpix.loadFromData(pix.tobytes("png"))
-            lbl = _ContPage(idx, highlight_mode=lambda: self._hl_mode,
-                            drag_set=self._drag_set)
+            lbl = _ContPage(idx, tool=lambda: self._tool,
+                            drag_set=self._drag_set,
+                            selector=self._live_selection,
+                            picker=self._pick_at)
             lbl.setPixmap(qpix)
             lbl.set_selected(idx in selected)
             lbl.clicked.connect(self._toggle_page_selection)
-            lbl.regionSelected.connect(self._on_region_selected)
-            lbl.setCursor(Qt.CrossCursor if self._hl_mode else Qt.ArrowCursor)
+            lbl.toolUsed.connect(self._on_tool_used)
+            lbl.doubleClicked.connect(self._on_page_double_clicked)
+            lbl.contextRequested.connect(self._on_page_context_menu)
             self.cont_layout.addWidget(lbl)
             self._cont_pages.append((idx, lbl))
+        self._refresh_tool_cursors()
+        self._refresh_overlays()
         if self.doc.page_count:
             self.cont_layout.addWidget(
                 self._make_gap(self.doc.page_count, width))
@@ -954,6 +1569,10 @@ class ViewerWindow(QMainWindow):
 
     # ------------------------------------------------------- Suppression --
     def delete_selected(self):
+        # Suppr efface d'abord l'annotation reprise, s'il y en a une.
+        if self._picked is not None:
+            self._delete_picked()
+            return
         sel = self._selected_indices()
         if not sel:
             QMessageBox.information(
@@ -982,69 +1601,626 @@ class ViewerWindow(QMainWindow):
         self._reload_views()
         self.statusBar().showMessage(f"{len(sel)} page(s) supprimée(s).")
 
-    # ------------------------------------------------------- Surlignage --
-    @staticmethod
-    def _color_icon(rgb) -> QIcon:
-        """Petite pastille de couleur pour le menu du surligneur."""
-        pm = QPixmap(18, 18)
-        pm.fill(Qt.transparent)
-        p = QPainter(pm)
-        p.setBrush(QColor.fromRgbF(*rgb))
-        p.setPen(QColor("#8F99AD"))
-        p.drawRoundedRect(1, 1, 15, 15, 3, 3)
-        p.end()
-        return QIcon(pm)
+    # ------------------------------------------------- Outils d'annotation --
+    def _set_tool(self, tool: Optional[str]):
+        """Active un outil d'annotation (None : retour au mode sélection).
+
+        Les boutons de la barre d'outils s'excluent mutuellement : activer un
+        outil relâche les deux autres.
+        """
+        self._tool = tool
+        # Une sélection n'a de sens que dans l'outil qui l'a produite.
+        if tool != TOOL_PICK:
+            self._picked = None
+        if tool != TOOL_TEXT_SELECT:
+            self._text_sel = None
+        for btn, active in ((self.pick_btn, tool == TOOL_PICK),
+                            (self.sel_btn, tool == TOOL_TEXT_SELECT),
+                            (self.hl_btn, tool in (TOOL_HL_SELECT, TOOL_HL_PEN)),
+                            (self.text_btn, tool == TOOL_TEXT),
+                            (self.check_btn, tool == TOOL_CHECK),
+                            (self.draw_btn, tool in DRAW_TOOLS)):
+            if btn.isChecked() != active:
+                btn.blockSignals(True)
+                btn.setChecked(active)
+                btn.blockSignals(False)
+        if tool and self.stack.currentWidget() is not self.cont_area:
+            # Les outils dessinent sur la page elle-même : mode continu requis.
+            self.btn_continuous.setChecked(True)
+            self._change_mode(0)
+        self._refresh_tool_icons()
+        self._refresh_tool_cursors()
+        self._refresh_overlays()
+        if tool:
+            self.statusBar().showMessage(
+                TOOL_HINTS[tool] + "   (Échap : quitter l'outil)")
+        else:
+            self._update_status()
+
+    def _refresh_tool_icons(self):
+        """Icône blanche pour l'outil actif : son bouton est alors sur fond
+        navy, où l'icône sombre disparaîtrait."""
+        on, off = "#FFFFFF", "#1B3461"
+        shape = next((ic for k, _lab, ic in DRAW_SHAPES if k == self._draw_kind),
+                     "pen")
+        for btn, name in (
+            (self.pick_btn, "pointer"),
+            (self.sel_btn, "cursor-text"),
+            (self.hl_btn,
+             "highlight" if self._hl_kind == TOOL_HL_SELECT else "marker"),
+            (self.text_btn, "text"),
+            (self.draw_btn, shape),
+            (self.check_btn, "check"),
+        ):
+            btn.setIcon(icons.icon(name, on if btn.isChecked() else off))
+
+    def _refresh_tool_cursors(self):
+        """Curseur et style d'aperçu des pages selon l'outil actif."""
+        if self._tool in (TOOL_TEXT, TOOL_TEXT_SELECT):
+            cursor = Qt.IBeamCursor
+        elif self._tool in (TOOL_PICK, TOOL_CHECK):
+            cursor = Qt.PointingHandCursor
+        elif self._tool:
+            cursor = Qt.CrossCursor
+        else:
+            cursor = Qt.ArrowCursor
+        for idx, lbl in getattr(self, "_cont_pages", []):
+            lbl.setCursor(cursor)
+            lbl.set_pen(*self._tool_pen(idx))
+
+    def _tool_pen(self, page_index: int):
+        """Style de l'aperçu du tracé : (couleur, épaisseur en pixels, fond)."""
+        if self._tool in (TOOL_HL_SELECT, TOOL_HL_PEN):
+            color = self._hl_color
+            width = self._hl_width if self._tool == TOOL_HL_PEN else 1.0
+            fill = None
+        elif self._tool in DRAW_TOOLS or self._tool == TOOL_CHECK:
+            color, width, fill = self._draw_color, self._draw_width, self._draw_fill
+        else:
+            return QColor("#1B3461"), 2.0, None
+        return (QColor.fromRgbF(*color),
+                width * self._page_scale(page_index),
+                QColor.fromRgbF(*fill) if fill else None)
+
+    # --------------------------------------- Conversion écran <-> page PDF --
+    def _page_view(self, idx: int):
+        """Repère d'affichage d'une page : (label, échelle, décalages).
+
+        L'échelle convertit les points PDF en pixels écran ; les décalages
+        situent le rendu dans le label, où le pixmap est centré.
+        """
+        lbl = next((l for i, l in getattr(self, "_cont_pages", []) if i == idx),
+                   None)
+        if lbl is None:
+            return None
+        pix = lbl.pixmap()
+        if pix is None or pix.isNull():
+            return None
+        scale = pix.width() / max(1.0, self.doc[idx].rect.width)
+        return (lbl, scale,
+                (lbl.width() - pix.width()) / 2.0,
+                (lbl.height() - pix.height()) / 2.0)
+
+    def _page_scale(self, idx: int) -> float:
+        view = self._page_view(idx)
+        return view[1] if view else 1.0
+
+    def _to_page_points(self, idx: int, points):
+        """Points en coordonnées label -> points de la page affichée (PDF),
+        rabattus à l'intérieur de la page."""
+        view = self._page_view(idx)
+        if view is None:
+            return None
+        _lbl, scale, off_x, off_y = view
+        rect = self.doc[idx].rect
+        out = []
+        for pt in points:
+            x = min(max((pt.x() - off_x) / scale, rect.x0), rect.x1)
+            y = min(max((pt.y() - off_y) / scale, rect.y0), rect.y1)
+            out.append(fitz.Point(x, y))
+        return out
+
+    # ------------------------------------------------ Tracé d'annotations --
+    def _on_tool_used(self, idx: int, tool: str, points):
+        """Fin d'un tracé sur la page `idx` : l'annotation est écrite au PDF."""
+        pts = self._to_page_points(idx, points)
+        if not pts or len(pts) < 2:
+            return
+        moved = max(abs(pts[-1].x - pts[0].x), abs(pts[-1].y - pts[0].y))
+        try:
+            if tool == TOOL_PICK:
+                self._finish_pick(idx, pts, moved)
+                return
+            if tool == TOOL_TEXT_SELECT:
+                self._finish_text_selection(idx)
+                return
+            if tool == TOOL_CHECK:
+                self._check_tool(idx, pts, moved)
+                return
+            if tool == TOOL_TEXT:
+                self._text_tool(idx, pts, moved)
+                return
+            if tool == TOOL_HL_SELECT:
+                rect = fitz.Rect(pts[0], pts[-1])
+                rect.normalize()
+                if rect.width < 2 or rect.height < 2:
+                    return
+                kind = pdf_ops.highlight_zone(self.doc, idx, rect, self._hl_color)
+                msg = "Texte surligné" if kind == "texte" else "Zone surlignée"
+            elif tool == TOOL_HL_PEN:
+                if moved < 2:
+                    return
+                pdf_ops.highlight_stroke(self.doc, idx, pts,
+                                         self._hl_color, self._hl_width)
+                msg = "Trait de marqueur ajouté"
+            else:
+                if moved < 2:
+                    return
+                pdf_ops.add_drawing(self.doc, idx, tool, pts,
+                                    color=self._draw_color,
+                                    width=self._draw_width,
+                                    fill=self._draw_fill)
+                msg = DRAW_DONE[tool]
+        except Exception as e:
+            QMessageBox.critical(self, "Annotation", f"Échec de l'annotation :\n{e}")
+            return
+        self._mark_dirty()
+        self._refresh_page(idx)
+        self.statusBar().showMessage(f"{msg} (page {idx + 1}).")
+
+    # ------------------------------------------------------------- Texte --
+    def _text_tool(self, idx: int, pts, moved: float):
+        """Outil texte : clic sur un texte = modification, glisser =
+        déplacement, clic ailleurs = nouveau texte."""
+        hit = pdf_ops.annot_at(self.doc, idx, pts[0], families=("text",))
+        if hit is not None and moved >= 3:
+            origin = (hit["rect"].x0 + (pts[-1].x - pts[0].x),
+                      hit["rect"].y0 + (pts[-1].y - pts[0].y))
+            pdf_ops.update_text_box(
+                self.doc, idx, hit["xref"], hit["text"], font=hit["font"],
+                size=hit["size"], color=hit["color"], fill=hit["fill"],
+                origin=origin)
+            self._mark_dirty()
+            self._refresh_page(idx)
+            self.statusBar().showMessage(f"Texte déplacé (page {idx + 1}).")
+            return
+        if hit is not None:
+            self._edit_text(idx, hit)
+            return
+        self._create_text(idx, (pts[0].x, pts[0].y))
+
+    def _create_text(self, idx: int, origin):
+        dlg = _TextDialog(self, self._text_style)
+        if dlg.exec() != QDialog.Accepted or dlg.deleted:
+            return
+        values = dlg.values()
+        if not values["text"].strip():
+            return
+        self._remember_text_style(values)
+        try:
+            pdf_ops.add_text_box(self.doc, idx, origin, values["text"],
+                                 font=values["font"], size=values["size"],
+                                 color=values["color"], fill=values["fill"])
+        except Exception as e:
+            QMessageBox.critical(self, "Texte", f"Échec de l'ajout du texte :\n{e}")
+            return
+        self._mark_dirty()
+        self._refresh_page(idx)
+        self.statusBar().showMessage(
+            f"Texte ajouté (page {idx + 1}) — double-cliquez dessus pour le "
+            "modifier, glissez-le avec l'outil texte pour le déplacer."
+        )
+
+    def _edit_text(self, idx: int, info: dict):
+        """Ré-édition d'un texte existant (contenu et mise en forme)."""
+        dlg = _TextDialog(self, info, text=info["text"], editing=True)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        values = dlg.values()
+        try:
+            if dlg.deleted or not values["text"].strip():
+                pdf_ops.delete_annot(self.doc, idx, info["xref"])
+                msg = "Texte supprimé"
+            else:
+                self._remember_text_style(values)
+                pdf_ops.update_text_box(
+                    self.doc, idx, info["xref"], values["text"],
+                    font=values["font"], size=values["size"],
+                    color=values["color"], fill=values["fill"])
+                msg = "Texte modifié"
+        except Exception as e:
+            QMessageBox.critical(self, "Texte", f"Échec de la modification :\n{e}")
+            return
+        self._mark_dirty()
+        self._refresh_page(idx)
+        self.statusBar().showMessage(f"{msg} (page {idx + 1}).")
+
+    def _remember_text_style(self, values: dict):
+        """La mise en forme choisie devient celle du prochain texte."""
+        self._text_style = {k: values[k]
+                            for k in ("font", "size", "color", "fill")}
+
+    def _on_page_double_clicked(self, idx: int, pos):
+        """Double-clic sur une annotation : ouvre sa modification (contenu et
+        mise en forme pour un texte, attributs pour un tracé), qu'un outil soit
+        actif ou non."""
+        pts = self._to_page_points(idx, [pos])
+        if not pts:
+            return
+        hit = pdf_ops.annot_at(self.doc, idx, pts[0])
+        if hit is None:
+            return
+        if hit["family"] == "text":
+            self._edit_text(idx, hit)
+        else:
+            self._edit_shape(idx, hit)
+
+    # -------------------------------- Reprise d'une annotation (déplacer…) --
+    def _to_label_rect(self, idx: int, rect) -> Optional[QRect]:
+        """Rectangle de la page (coords PDF affichées) -> coords du label."""
+        view = self._page_view(idx)
+        if view is None:
+            return None
+        _lbl, scale, off_x, off_y = view
+        return QRect(int(rect.x0 * scale + off_x), int(rect.y0 * scale + off_y),
+                     max(4, int(rect.width * scale)),
+                     max(4, int(rect.height * scale)))
+
+    def _refresh_overlays(self):
+        """Reporte sur les pages les repères d'écran : annotation reprise et
+        sélection de texte (ils suivent le zoom et la reconstruction des vues)."""
+        for idx, lbl in getattr(self, "_cont_pages", []):
+            pick = None
+            if self._picked is not None and self._picked["page"] == idx:
+                pick = self._to_label_rect(idx, self._picked["rect"])
+            lbl.set_pick_rect(pick)
+            rects = []
+            if self._text_sel is not None and self._text_sel["page"] == idx:
+                rects = [r for r in (self._to_label_rect(idx, r)
+                                     for r in self._text_sel["rects"])
+                         if r is not None]
+            lbl.set_text_rects(rects)
+
+    def _pick_at(self, idx: int, pos) -> Optional[QRect]:
+        """Appui de l'outil de reprise : sélectionne l'annotation sous le
+        curseur et renvoie son cadre (coords du label) pour l'aperçu."""
+        pts = self._to_page_points(idx, [pos])
+        info = pdf_ops.annot_at(self.doc, idx, pts[0]) if pts else None
+        if info is None:
+            self._picked = None
+            self._refresh_overlays()
+            self.statusBar().showMessage(
+                "Aucune annotation à cet endroit — cliquez sur un texte, un "
+                "tracé ou un surlignage pour le reprendre."
+            )
+            return None
+        self._picked = {"page": idx, "xref": info["xref"],
+                        "rect": fitz.Rect(info["rect"]), "family": info["family"]}
+        self._refresh_overlays()
+        self.statusBar().showMessage(
+            f"{FAMILY_LABELS[info['family']]} sélectionné : glissez pour "
+            "déplacer • double-clic : attributs • Suppr : effacer."
+        )
+        return self._to_label_rect(idx, info["rect"])
+
+    def _finish_pick(self, idx: int, pts, moved: float):
+        """Relâchement de l'outil de reprise : déplacement si la souris a bougé."""
+        if self._picked is None or self._picked["page"] != idx or moved < 3:
+            return                       # simple clic : la sélection suffit
+        fresh = pdf_ops.move_annot(self.doc, idx, self._picked["xref"],
+                                   pts[-1].x - pts[0].x, pts[-1].y - pts[0].y)
+        if fresh is None:
+            QMessageBox.information(
+                self, "Déplacement",
+                "Cette annotation ne peut pas être déplacée."
+            )
+            return
+        # L'annotation est recréée à sa nouvelle place : son xref change.
+        self._picked = {"page": idx, "xref": fresh["xref"],
+                        "rect": fitz.Rect(fresh["rect"]),
+                        "family": fresh["family"]}
+        self._mark_dirty()
+        self._refresh_page(idx)
+        self._refresh_overlays()
+        self.statusBar().showMessage(
+            f"{FAMILY_LABELS[fresh['family']]} déplacé (page {idx + 1}).")
+
+    def _delete_picked(self):
+        info = self._picked
+        if info is None:
+            return
+        if pdf_ops.delete_annot(self.doc, info["page"], info["xref"]):
+            self._picked = None
+            self._mark_dirty()
+            self._refresh_page(info["page"])
+            self._refresh_overlays()
+            self.statusBar().showMessage(
+                f"{FAMILY_LABELS[info['family']]} supprimé "
+                f"(page {info['page'] + 1})."
+            )
+
+    def _edit_shape(self, idx: int, info: dict):
+        """Change les attributs d'un tracé ou d'un surlignage déjà posé."""
+        style = pdf_ops.annot_style(self.doc, idx, info["xref"])
+        if style is None:
+            return
+        dlg = _ShapeDialog(self, style, family=info["family"])
+        if dlg.exec() != QDialog.Accepted:
+            return
+        values = dlg.values()
+        try:
+            if dlg.deleted:
+                pdf_ops.delete_annot(self.doc, idx, info["xref"])
+                if self._picked and self._picked["xref"] == info["xref"]:
+                    self._picked = None
+                msg = f"{FAMILY_LABELS[info['family']]} supprimé"
+            else:
+                pdf_ops.set_annot_style(
+                    self.doc, idx, info["xref"], color=values["color"],
+                    width=values["width"], fill=values["fill"])
+                if info["family"] == "draw":
+                    # Les nouveaux tracés reprennent les réglages choisis ici.
+                    self._apply_draw_color(values["color"])
+                    self._apply_draw_width(values["width"])
+                    self._apply_draw_fill(values["fill"] or None)
+                else:
+                    self._apply_highlight_color(values["color"])
+                msg = f"{FAMILY_LABELS[info['family']]} modifié"
+        except Exception as e:
+            QMessageBox.critical(self, "Annotation",
+                                 f"Échec de la modification :\n{e}")
+            return
+        self._mark_dirty()
+        self._refresh_page(idx)
+        self._refresh_overlays()
+        self.statusBar().showMessage(f"{msg} (page {idx + 1}).")
+
+    # ------------------------------------------- Sélection de texte (copie) --
+    def _live_selection(self, idx: int, start, current):
+        """Sélection montrée pendant le glisser : renvoie les rectangles à
+        peindre (coords du label)."""
+        pts = self._to_page_points(idx, [start, current])
+        if pts is None:
+            return []
+        sel = pdf_ops.select_text(self.doc, idx, pts[0], pts[1])
+        self._text_sel = {
+            "page": idx,
+            "start": (pts[0].x, pts[0].y),
+            "stop": (pts[1].x, pts[1].y),
+            "text": sel["text"],
+            "rects": sel["rects"],
+        }
+        for other, lbl in getattr(self, "_cont_pages", []):
+            if other != idx:
+                lbl.set_text_rects([])   # une seule page sélectionnée à la fois
+        return [r for r in (self._to_label_rect(idx, r) for r in sel["rects"])
+                if r is not None]
+
+    def _has_text_selection(self) -> bool:
+        return bool(self._text_sel and (self._text_sel["text"] or "").strip())
+
+    def _finish_text_selection(self, idx: int):
+        if self._has_text_selection():
+            count = len(self._text_sel["text"].strip())
+            self.statusBar().showMessage(
+                f"{count} caractères sélectionnés — Ctrl+C : copier • "
+                "clic droit : copier ou surligner la sélection."
+            )
+            return
+        self._text_sel = None
+        self._refresh_overlays()
+        if not pdf_ops.has_text_layer(self.doc, idx):
+            self.statusBar().showMessage(
+                f"La page {idx + 1} n'a pas de couche de texte (PDF image) : "
+                "lancez l'OCR pour pouvoir y sélectionner du texte, ou "
+                "utilisez le marqueur pour surligner."
+            )
+        else:
+            self.statusBar().showMessage("Aucun texte sélectionné.")
+
+    def copy_text_selection(self):
+        """Copie le texte sélectionné dans le presse-papiers de Windows."""
+        if not self._has_text_selection():
+            self.statusBar().showMessage(
+                "Aucun texte sélectionné : activez l'outil de sélection de "
+                "texte puis glissez sur le document."
+            )
+            return
+        text = self._text_sel["text"]
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage(
+            f"{len(text)} caractères copiés dans le presse-papiers.")
+
+    def highlight_text_selection(self):
+        """Surligne le texte sélectionné (comme dans Acrobat)."""
+        if not self._has_text_selection():
+            self.statusBar().showMessage(
+                "Aucun texte sélectionné à surligner : activez l'outil de "
+                "sélection de texte puis glissez sur le document."
+            )
+            return
+        sel = self._text_sel
+        try:
+            count = pdf_ops.highlight_selection(
+                self.doc, sel["page"], sel["start"], sel["stop"], self._hl_color)
+        except Exception as e:
+            QMessageBox.critical(self, "Surlignage", f"Échec du surlignage :\n{e}")
+            return
+        if not count:
+            self.statusBar().showMessage("Aucun texte à surligner.")
+            return
+        page = sel["page"]
+        self._text_sel = None
+        self._mark_dirty()
+        self._refresh_page(page)
+        self._refresh_overlays()
+        self.statusBar().showMessage(
+            f"{count} ligne(s) surlignée(s) (page {page + 1}).")
+
+    # ------------------------------------------------------ Cases à cocher --
+    def _check_tool(self, idx: int, pts, moved: float):
+        """Clic de l'outil « cocher » : bascule une case de formulaire, ou
+        pose une coche dessinée sur une case imprimée."""
+        box = pdf_ops.checkbox_at(self.doc, idx, pts[0]) if moved < 3 else None
+        if box is not None:
+            state = pdf_ops.toggle_checkbox(self.doc, idx, box["xref"])
+            self._mark_dirty()
+            self._refresh_page(idx)
+            name = f" « {box['name']} »" if box["name"] else ""
+            self.statusBar().showMessage(
+                f"Case{name} {'cochée' if state else 'décochée'} "
+                f"(page {idx + 1})."
+            )
+            return
+        rect = fitz.Rect(pts[0], pts[-1])
+        rect.normalize()
+        if rect.width < 4 or rect.height < 4:
+            # Simple clic : coche de taille courante, centrée sur le clic.
+            half = 8.0
+            rect = fitz.Rect(pts[0].x - half, pts[0].y - half,
+                             pts[0].x + half, pts[0].y + half)
+        pdf_ops.add_check_mark(self.doc, idx, rect, color=self._draw_color,
+                               width=max(1.5, self._draw_width))
+        self._mark_dirty()
+        self._refresh_page(idx)
+        hint = ("" if pdf_ops.count_checkboxes(self.doc, idx)
+                else "  (aucune case de formulaire sur cette page : la coche "
+                     "est un tracé, déplaçable et effaçable)")
+        self.statusBar().showMessage(f"Coche posée (page {idx + 1}).{hint}")
+
+    # ------------------------------------- Clic droit sur une page (continu) --
+    def _on_page_context_menu(self, idx: int, pos):
+        pts = self._to_page_points(idx, [pos])
+        hit = pdf_ops.annot_at(self.doc, idx, pts[0]) if pts else None
+        menu = QMenu(self)
+        a_edit = a_del = a_move = a_copy_sel = a_hl_sel = None
+        if (self._has_text_selection() and self._text_sel["page"] == idx):
+            a_copy_sel = menu.addAction(icons.icon("copy"),
+                                        "Copier le texte sélectionné")
+            a_hl_sel = menu.addAction(icons.icon("highlight"),
+                                      "Surligner le texte sélectionné")
+            menu.addSeparator()
+        if hit is not None:
+            what = {"text": "ce texte", "draw": "ce tracé",
+                    "highlight": "ce surlignage"}[hit["family"]]
+            if hit["family"] == "text":
+                a_edit = menu.addAction(icons.icon("edit"), "Modifier ce texte…")
+            else:
+                a_edit = menu.addAction(icons.icon("edit"),
+                                        f"Modifier {what} (couleur, épaisseur)…")
+            a_move = menu.addAction(icons.icon("pointer"),
+                                    f"Sélectionner {what} (pour le déplacer)")
+            a_del = menu.addAction(icons.icon("trash"), f"Supprimer {what}")
+            menu.addSeparator()
+        a_hl = menu.addAction("Effacer les surlignages de cette page")
+        a_draw = menu.addAction("Effacer les dessins de cette page")
+        a_text = menu.addAction("Effacer les textes de cette page")
+        lbl = next((l for i, l in getattr(self, "_cont_pages", []) if i == idx),
+                   None)
+        origin = lbl.mapToGlobal(pos) if lbl is not None else self.pos()
+        chosen = menu.exec(origin)
+        if chosen is None:
+            return
+        if chosen is a_copy_sel:
+            self.copy_text_selection()
+        elif chosen is a_hl_sel:
+            self.highlight_text_selection()
+        elif chosen is a_edit:
+            if hit["family"] == "text":
+                self._edit_text(idx, hit)
+            else:
+                self._edit_shape(idx, hit)
+        elif chosen is a_move:
+            # Passe à l'outil de reprise, annotation déjà sélectionnée.
+            self._set_tool(TOOL_PICK)
+            self._pick_at(idx, pos)
+        elif chosen is a_del:
+            if pdf_ops.delete_annot(self.doc, idx, hit["xref"]):
+                if self._picked and self._picked["xref"] == hit["xref"]:
+                    self._picked = None
+                self._mark_dirty()
+                self._refresh_page(idx)
+                self._refresh_overlays()
+                self.statusBar().showMessage(
+                    f"{FAMILY_LABELS[hit['family']]} supprimé (page {idx + 1}).")
+        elif chosen is a_hl:
+            self._clear_annots([idx], "highlight", "surlignage",
+                               f"page {idx + 1}")
+        elif chosen is a_draw:
+            self._clear_annots([idx], "draw", "dessin", f"page {idx + 1}")
+        elif chosen is a_text:
+            self._clear_annots([idx], "text", "texte", f"page {idx + 1}")
+
+    # ------------------------------------------- Réglages des outils (menus) --
+    def _set_hl_kind(self, kind: str):
+        self._hl_kind = kind
+        self._set_tool(kind)              # choisir un mode active le surligneur
 
     def _set_highlight_color(self, name: str):
         self._hl_color = pdf_ops.HIGHLIGHT_COLORS[name]
         for a in self._hl_color_actions:
             a.setChecked(a.text() == name)
-        if not self.hl_btn.isChecked():
-            self.hl_btn.setChecked(True)   # choisir une couleur active le mode
+        self._set_tool(self._hl_kind)
 
-    def _set_highlight_mode(self, on: bool):
-        self._hl_mode = on
-        if on and self.stack.currentWidget() is not self.cont_area:
-            self.btn_continuous.setChecked(True)
-            self._change_mode(0)
-        for _idx, lbl in getattr(self, "_cont_pages", []):
-            lbl.setCursor(Qt.CrossCursor if on else Qt.ArrowCursor)
-        if on:
-            self.statusBar().showMessage(
-                "Surligneur actif : glissez sur du texte ou une zone à surligner."
-            )
-        else:
-            self._update_status()
+    def _set_highlight_width(self, value: float):
+        self._hl_width = value
+        for a, v in self._hl_width_actions:
+            a.setChecked(v == value)
+        self._set_tool(self._hl_kind)
 
-    def _on_region_selected(self, idx: int, qrect):
-        """Zone sélectionnée à la souris (mode surligneur) sur la page `idx`."""
-        if not self._hl_mode:
-            return
-        lbl = next((l for i, l in self._cont_pages if i == idx), None)
-        if lbl is None or lbl.pixmap() is None or lbl.pixmap().isNull():
-            return
-        pix = lbl.pixmap()
-        # coords label -> coords pixmap (le pixmap est centré dans le label)
-        off_x = (lbl.width() - pix.width()) / 2.0
-        off_y = (lbl.height() - pix.height()) / 2.0
-        page = self.doc[idx]
-        z = pix.width() / max(1.0, page.rect.width)
-        rect = fitz.Rect(
-            (qrect.left() - off_x) / z, (qrect.top() - off_y) / z,
-            (qrect.right() - off_x) / z, (qrect.bottom() - off_y) / z,
-        ) & page.rect
-        if rect.is_empty or rect.width < 1 or rect.height < 1:
-            return
-        try:
-            kind = pdf_ops.highlight_zone(self.doc, idx, rect, self._hl_color)
-        except Exception as e:
-            QMessageBox.critical(self, "Surlignage", f"Échec du surlignage :\n{e}")
-            return
-        self._mark_dirty()
-        self._refresh_page(idx)
-        msg = "Texte surligné" if kind == "texte" else "Zone surlignée"
-        self.statusBar().showMessage(f"{msg} (page {idx + 1}).")
+    def _set_draw_kind(self, kind: str):
+        self._draw_kind = kind
+        self._refresh_draw_button()
+        self._set_tool(kind)
 
+    # Les réglages se mémorisent (_apply_*) sans forcément activer l'outil :
+    # les modifier depuis le dialogue d'attributs ne doit pas faire sortir de
+    # l'outil de reprise.
+    def _apply_draw_color(self, rgb):
+        self._draw_color = rgb
+        for a, c in self._draw_color_actions:
+            a.setChecked(c == rgb)
+
+    def _apply_draw_fill(self, rgb):
+        self._draw_fill = rgb
+        for a, c in self._draw_fill_actions:
+            a.setChecked(c == rgb)
+
+    def _apply_draw_width(self, value: float):
+        self._draw_width = value
+        for a, v in self._draw_width_actions:
+            a.setChecked(v == value)
+
+    def _apply_highlight_color(self, rgb):
+        self._hl_color = rgb
+        for a in self._hl_color_actions:
+            a.setChecked(pdf_ops.HIGHLIGHT_COLORS.get(a.text()) == rgb)
+
+    def _set_draw_color(self, rgb):
+        self._apply_draw_color(rgb)
+        self._set_tool(self._draw_kind)
+
+    def _set_draw_fill(self, rgb):
+        self._apply_draw_fill(rgb)
+        self._set_tool(self._draw_kind)
+
+    def _set_draw_width(self, value: float):
+        self._apply_draw_width(value)
+        self._set_tool(self._draw_kind)
+
+    def _refresh_draw_button(self):
+        """Le bouton « dessiner » porte l'icône de la forme choisie."""
+        label, icon_name = next(
+            ((lab, ic) for k, lab, ic in DRAW_SHAPES if k == self._draw_kind),
+            ("Main levée", "pen"))
+        self.draw_btn.setIcon(icons.icon(
+            icon_name, "#FFFFFF" if self.draw_btn.isChecked() else "#1B3461"))
+        self.draw_btn.setToolTip(
+            f"Dessiner : {label.lower()}. Flèche : forme, couleur, épaisseur "
+            "et remplissage."
+        )
+
+    # ---------------------------------------------- Rendu d'une seule page --
     def _refresh_page(self, idx: int):
         """Re-rend une seule page (vue continue + vignette) après annotation."""
         for i, lbl in getattr(self, "_cont_pages", []):
@@ -1065,20 +2241,59 @@ class ViewerWindow(QMainWindow):
             pm.loadFromData(png)
             item.setIcon(QIcon(pm))
 
-    def clear_highlights(self):
-        targets = self._selected_indices() or list(range(self.doc.page_count))
-        count = pdf_ops.remove_highlights(self.doc, targets)
+    # ------------------------------------------- Effacement d'annotations --
+    def _clear_annots(self, indices, family: str, label: str, scope: str = ""):
+        try:
+            count = pdf_ops.remove_annots(self.doc, indices, (family,))
+        except Exception as e:
+            QMessageBox.critical(self, "Effacement", f"Échec de l'effacement :\n{e}")
+            return
+        where = f" ({scope})" if scope else ""
         if not count:
-            self.statusBar().showMessage("Aucun surlignage à effacer.")
+            self.statusBar().showMessage(f"Aucun {label} à effacer{where}.")
             return
         self._mark_dirty()
         self._reload_views()
+        self.statusBar().showMessage(f"{count} {label}(s) effacé(s){where}.")
+
+    def _clear_selected_annots(self, family: str, label: str):
+        """Efface sur les pages sélectionnées, ou sur tout le document."""
+        targets = self._selected_indices() or list(range(self.doc.page_count))
         scope = "sélection" if self.page_list.selectedItems() else "tout le document"
-        self.statusBar().showMessage(
-            f"{count} surlignage(s) effacé(s) ({scope}).")
+        self._clear_annots(targets, family, label, scope)
+
+    def clear_highlights(self):
+        self._clear_selected_annots("highlight", "surlignage")
+
+    def clear_drawings(self):
+        self._clear_selected_annots("draw", "dessin")
+
+    def clear_texts(self):
+        self._clear_selected_annots("text", "texte")
+
+    def keyPressEvent(self, event):
+        """Échap : lève d'abord la sélection en cours, puis quitte l'outil."""
+        if event.key() == Qt.Key_Escape:
+            if self._picked is not None or self._text_sel is not None:
+                self._picked = None
+                self._text_sel = None
+                self._refresh_overlays()
+                self._update_status()
+                event.accept()
+                return
+            if self._tool:
+                self._set_tool(None)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     # ----------------------------------------- Copier / couper / coller --
     def copy_pages(self):
+        # Avec l'outil de sélection de texte, Ctrl+C copie le texte choisi ;
+        # ailleurs, il copie les pages sélectionnées.
+        if self._tool == TOOL_TEXT_SELECT and self._has_text_selection():
+            self.copy_text_selection()
+            return
         sel = self._selected_indices() or ([0] if self.single else [])
         if not sel:
             QMessageBox.information(
