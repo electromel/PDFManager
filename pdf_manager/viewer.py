@@ -71,7 +71,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QCheckBox,
 )
 
-from . import pdf_ops, ocr, icons
+from . import pdf_ops, ocr, icons, printing
 
 # Presse-papiers de pages, partagé par toutes les visionneuses : permet de
 # copier/couper des pages d'un document et de les coller dans le même
@@ -1345,6 +1345,27 @@ class ViewerWindow(QMainWindow):
         tb.addAction(act_ocr)
         tb.addSeparator()
 
+        # Impression (icône seule ; menu : imprimer ou aperçu)
+        print_btn = QToolButton(self)
+        print_btn.setToolTip("Imprimer  (Ctrl+P)")
+        print_btn.setIcon(icons.icon("printer"))
+        print_btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        print_btn.setPopupMode(QToolButton.InstantPopup)
+        print_menu = QMenu(print_btn)
+        print_menu.addAction(icons.icon("printer"),
+                             "Imprimer… (sélection/tout)", self.print_document)
+        print_menu.addAction(icons.icon("eye"), "Aperçu avant impression…",
+                             self.print_preview)
+        print_btn.setMenu(print_menu)
+        tb.addWidget(print_btn)
+
+        # Raccourci : actif quel que soit le widget qui a le focus ici.
+        self.act_print = QAction("Imprimer", self)
+        self.act_print.setShortcut(QKeySequence.Print)
+        self.act_print.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.act_print.triggered.connect(self.print_document)
+        self.addAction(self.act_print)
+
         act_save = QAction(icons.icon("save"), "Enregistrer", self)
         act_save.setToolTip("Enregistrer sous…")
         act_save.triggered.connect(self.save_as)
@@ -2399,6 +2420,8 @@ class ViewerWindow(QMainWindow):
         a_paste_b.setEnabled(has_clip)
         a_paste_a.setEnabled(has_clip)
         menu.addSeparator()
+        a_print = menu.addAction(icons.icon("printer"), f"Imprimer {pages_txt}")
+        menu.addSeparator()
         a_del = menu.addAction(icons.icon("trash"), "Supprimer cette page")
         menu.addSeparator()
         a_before = menu.addAction("✂  Découper AVANT cette page")
@@ -2417,6 +2440,8 @@ class ViewerWindow(QMainWindow):
             pdf_ops.rotate_doc_pages(self.doc, [idx], 90); self._mark_dirty(); self._reload_views()
         elif chosen == a_rccw:
             pdf_ops.rotate_doc_pages(self.doc, [idx], 270); self._mark_dirty(); self._reload_views()
+        elif chosen == a_print:
+            self.print_selected_pages()
         elif chosen == a_del:
             self.page_list.clearSelection()
             item.setSelected(True)
@@ -2450,6 +2475,67 @@ class ViewerWindow(QMainWindow):
             self, "Découpe terminée",
             f"Deux documents créés (compressés) :\n{out1}\n{out2}"
         )
+
+    # -------------------------------------------------------- Imprimer --
+    def _printable(self, only_selection: bool = False):
+        """Pages à imprimer, dans l'ordre affiché.
+
+        On imprime le document tel qu'il est à l'écran — réordonné, pivoté,
+        annoté — et non le fichier sur le disque.
+        """
+        order = self._current_order()
+        if only_selection:
+            chosen = set(self._selected_indices())
+            if not chosen:
+                return []
+            order = [index for index in order if index in chosen]
+        return printing.pages_of(self.doc, order)
+
+    def _print_ready(self) -> bool:
+        if self.doc.page_count == 0:
+            QMessageBox.information(
+                self, "Imprimer", "Ce document ne contient aucune page.")
+            return False
+        if not printing.printers_available():
+            QMessageBox.warning(
+                self, "Aucune imprimante",
+                "Aucune imprimante n'est installée sur ce poste.\n\n"
+                "Ajoutez-en une dans les paramètres Windows, ou utilisez "
+                "« Microsoft Print to PDF » pour produire un fichier."
+            )
+            return False
+        return True
+
+    def print_document(self):
+        """Imprime le document ; la boîte système propose la sélection."""
+        if not self._print_ready():
+            return
+        selection = self._printable(only_selection=True)
+        printed = printing.print_pages(
+            self, self._printable(), title=self.tab_title(),
+            selection=selection or None,
+        )
+        if printed:
+            self.statusBar().showMessage(
+                f"{printed} page(s) envoyée(s) à l'impression.")
+        else:
+            self.statusBar().showMessage("Impression annulée.")
+
+    def print_selected_pages(self):
+        """Imprime directement les pages sélectionnées (menu contextuel)."""
+        if not self._print_ready():
+            return
+        pages = self._printable(only_selection=True) or self._printable()
+        printed = printing.print_pages(self, pages, title=self.tab_title())
+        self.statusBar().showMessage(
+            f"{printed} page(s) envoyée(s) à l'impression." if printed
+            else "Impression annulée."
+        )
+
+    def print_preview(self):
+        if not self._print_ready():
+            return
+        printing.preview_pages(self, self._printable(), title=self.tab_title())
 
     # ----------------------------------------------------- Enregistrer --
     def save_as(self):

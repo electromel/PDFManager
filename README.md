@@ -1,8 +1,8 @@
 # PDF Manager
 
-Application de bureau autonome pour **gérer, fusionner, découper, optimiser et
-OCRiser des PDF**. Le moteur OCR **Tesseract** est embarqué dans l'exécutable :
-l'utilisateur final n'installe rien.
+Application de bureau autonome pour **gérer, fusionner, découper, optimiser,
+imprimer et OCRiser des PDF**. Le moteur OCR **Tesseract** est embarqué dans
+l'exécutable : l'utilisateur final n'installe rien.
 
 **Exécution sans installation et sans dépendance tierce** : l'exécutable se lance
 directement par double-clic, ne nécessite aucune installation et ne dépend
@@ -32,6 +32,8 @@ bibliothèques requises sont embarqués).
 - **Optimisation de la sélection** (bouton « Optimiser », ou clic droit sur une
   vignette) : contrôle, réparation, nettoyage et compression en un seul passage
   (voir §1 « Optimisation »).
+- **Impression de la sélection** (bouton imprimante ou `Ctrl+P`) : tous les
+  documents sélectionnés partent en **un seul travail d'impression**.
 - **Recherche plein texte** dans les documents sélectionnés (résultats par
   document et par page, double-clic pour ouvrir la page).
 
@@ -125,6 +127,29 @@ d'outils (mode continu) : ils s'excluent mutuellement et se quittent par
   - nom proposé automatiquement à partir du premier document ;
   - option de **suppression du document source** ;
   - le document enregistré est **toujours compressé**.
+
+### Impression
+
+Depuis la **visionneuse** (bouton imprimante ou `Ctrl+P`) ou depuis la
+**bibliothèque** (impression de la sélection, en un seul travail) :
+
+- **c'est le document affiché qui est imprimé**, pas le fichier du disque :
+  pages réordonnées, pivotées, supprimées et annotations posées sont bien là,
+  même sans enregistrement préalable ;
+- la **boîte d'impression Windows** habituelle donne l'imprimante, le nombre de
+  copies, le recto-verso, la couleur ou le noir et blanc, et l'étendue de pages ;
+- si des pages sont **sélectionnées** dans la visionneuse, l'option
+  « Sélection » de cette boîte les imprime seules — le clic droit sur une
+  vignette propose aussi « Imprimer les pages sélectionnées » ;
+- **aperçu avant impression** dans le menu du bouton imprimante ;
+- les pages **paysage sont pivotées d'un quart de tour** pour remplir la
+  feuille portrait au lieu d'occuper une bande au milieu ;
+- une **progression annulable** s'affiche au-delà d'une page.
+
+Chaque page est rendue en image à **400 ppp** avant d'être envoyée à
+l'imprimante (Qt ne sait pas transmettre un PDF tel quel). La résolution est
+abaissée automatiquement sur les très grands formats, pour qu'un plan A0 ne
+réclame pas un gigaoctet de mémoire.
 
 ### Optimisation
 
@@ -263,6 +288,7 @@ PDFManager/
    ├─ pdf_ops.py    Opérations PDF (rendu, fusion, découpe, compression,
    │                annotations, sélection de texte, cases à cocher)
    ├─ optimize.py   Contrôle, réparation, nettoyage et compression
+   ├─ printing.py   Impression (rendu des pages vers une imprimante Qt)
    ├─ ocr.py        OCR Tesseract (langues writable, couche texte maison)
    └─ flowlayout.py Galerie
 ```

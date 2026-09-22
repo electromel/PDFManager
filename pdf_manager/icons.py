@@ -82,6 +82,10 @@ _ICONS = {
     "optimize":   '<path d="M11 3l1.9 4.9L18 9.8l-5.1 1.9L11 17l-1.9-5.3L4 9.8l5.1-1.9L11 3z"/>'
                   '<line x1="18" y1="15" x2="18" y2="21"/>'
                   '<line x1="15" y1="18" x2="21" y2="18"/>',
+    "printer":    '<polyline points="6 9 6 2 18 2 18 9"/>'
+                  '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5'
+                  'a2 2 0 0 1-2 2h-2"/>'
+                  '<rect x="6" y="13" width="12" height="9" rx="1"/>',
 }
 
 _DEFAULT_COLOR = "#243044"

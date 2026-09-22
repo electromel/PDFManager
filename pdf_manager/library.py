@@ -18,7 +18,7 @@ import time
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal, QSize, QThread
-from PySide6.QtGui import QAction, QPixmap, QFont
+from PySide6.QtGui import QAction, QPixmap, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QFrame, QLabel, QVBoxLayout, QWidget, QScrollArea, QMainWindow,
     QFileDialog, QMessageBox, QToolBar, QInputDialog, QSizePolicy,
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QHeaderView, QGridLayout,
 )
 
-from . import pdf_ops, ocr, optimize
+from . import pdf_ops, ocr, optimize, printing
 from .flowlayout import FlowLayout
 from . import icons
 
@@ -657,6 +657,12 @@ class LibraryWindow(QMainWindow):
         self.act_optimize.triggered.connect(self.optimize_selection)
         tb.addAction(self.act_optimize)
 
+        self.act_print = QAction(icons.icon("printer"), "", self)
+        self.act_print.setToolTip("Imprimer la sélection  (Ctrl+P)")
+        self.act_print.setShortcut(QKeySequence.Print)
+        self.act_print.triggered.connect(self.print_selection)
+        tb.addAction(self.act_print)
+
         self.act_open = QAction(icons.icon("eye"), "Ouvrir", self)
         self.act_open.setToolTip("Ouvrir le document sélectionné dans le volet de droite")
         self.act_open.triggered.connect(self._open_selected_single)
@@ -846,6 +852,7 @@ class LibraryWindow(QMainWindow):
         a_ocr = menu.addAction(icons.icon("ocr"), "OCR")
         a_optimize = menu.addAction(icons.icon("optimize"), "Optimiser…")
         a_optimize.setToolTip("Contrôler, réparer, nettoyer et compresser")
+        a_print = menu.addAction(icons.icon("printer"), "Imprimer…")
         a_merge = menu.addAction(icons.icon("merge"), "Fusionner la sélection")
         a_merge.setEnabled(len(self._selection) >= 2)
         a_merge.setToolTip("Sélectionnez au moins deux documents")
@@ -860,6 +867,8 @@ class LibraryWindow(QMainWindow):
             self._run_ocr_on([path])
         elif chosen == a_optimize:
             self._run_optimize_on([path])
+        elif chosen == a_print:
+            self._print_paths([path])
         elif chosen == a_merge:
             self.merge_selection()
         elif chosen == a_del:
@@ -1185,6 +1194,58 @@ class LibraryWindow(QMainWindow):
             self._opt_progress.close()
         QMessageBox.critical(
             self, "Erreur", f"Échec de l'optimisation :\n{msg}"
+        )
+
+    # -------------------------------------------------------- Impression --
+    def print_selection(self):
+        if not self._selection:
+            QMessageBox.information(
+                self, "Imprimer",
+                "Sélectionnez d'abord un ou plusieurs documents à imprimer."
+            )
+            return
+        self._print_paths(list(self._selection))
+
+    def _print_paths(self, paths: List[str]):
+        """Imprime des documents, à la suite, en un seul travail."""
+        if not paths:
+            return
+        if not printing.printers_available():
+            QMessageBox.warning(
+                self, "Aucune imprimante",
+                "Aucune imprimante n'est installée sur ce poste.\n\n"
+                "Ajoutez-en une dans les paramètres Windows, ou utilisez "
+                "« Microsoft Print to PDF » pour produire un fichier."
+            )
+            return
+
+        # Un document ouvert dans un onglet peut avoir été modifié sans être
+        # enregistré : c'est la version du disque qui part à l'impression.
+        modified = [os.path.basename(p) for p in paths
+                    if getattr(self._open_tabs.get(p), "_dirty", False)]
+        if modified and QMessageBox.question(
+            self, "Modifications non enregistrées",
+            "Ces documents ont des modifications non enregistrées :\n\n"
+            + "\n".join(modified)
+            + "\n\nC'est la version enregistrée sur le disque qui sera "
+              "imprimée. Continuer ?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        title = (os.path.basename(paths[0]) if len(paths) == 1
+                 else f"{len(paths)} documents")
+        printed, failed = printing.print_files(self, paths, title=title)
+
+        if failed:
+            QMessageBox.warning(
+                self, "Documents ignorés",
+                "Ces documents n'ont pas pu être lus (illisibles ou protégés "
+                "par un mot de passe) :\n\n" + "\n".join(failed)
+            )
+        self.statusBar().showMessage(
+            f"{printed} page(s) envoyée(s) à l'impression." if printed
+            else "Impression annulée."
         )
 
     # --------------------------------------------------------- Recherche --
