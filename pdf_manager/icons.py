@@ -65,6 +65,23 @@ _ICONS = {
                   '<line x1="8.12" y1="8.12" x2="12" y2="12"/>',
     "clipboard":  '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>'
                   '<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
+    "text":       '<polyline points="4 7 4 4 20 4 20 7"/>'
+                  '<line x1="9" y1="20" x2="15" y2="20"/>'
+                  '<line x1="12" y1="4" x2="12" y2="20"/>',
+    "pen":        '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
+    "line":       '<line x1="4" y1="20" x2="20" y2="4"/>',
+    "arrow":      '<line x1="4" y1="20" x2="19" y2="5"/>'
+                  '<polyline points="20 11 20 4 13 4"/>',
+    "square":     '<rect x="3" y="4" width="18" height="16" rx="2"/>',
+    "circle":     '<ellipse cx="12" cy="12" rx="9" ry="7"/>',
+    "marker":     '<path d="M15 3l6 6-9 9H6v-6l9-9z"/><line x1="3" y1="22" x2="21" y2="22"/>',
+    "pointer":    '<path d="M4 3l7 17 2.2-7 6.8-2.4L4 3z"/>',
+    "cursor-text": '<line x1="12" y1="4" x2="12" y2="20"/>'
+                  '<line x1="8" y1="4" x2="16" y2="4"/>'
+                  '<line x1="8" y1="20" x2="16" y2="20"/>',
+    "optimize":   '<path d="M11 3l1.9 4.9L18 9.8l-5.1 1.9L11 17l-1.9-5.3L4 9.8l5.1-1.9L11 3z"/>'
+                  '<line x1="18" y1="15" x2="18" y2="21"/>'
+                  '<line x1="15" y1="18" x2="21" y2="18"/>',
 }
 
 _DEFAULT_COLOR = "#243044"

@@ -73,18 +73,29 @@ QToolBar QToolButton:pressed {
     background: #DDE1EB;
 }
 
+/* Outil actif (surligneur, texte, dessin) : l'état enfoncé doit se voir. */
+QToolBar QToolButton:checked {
+    background: #1B3461;
+    color: #FFFFFF;
+}
+
+QToolBar QToolButton:checked:hover {
+    background: #243E76;
+    color: #FFFFFF;
+}
+
 QToolBar QToolButton::menu-indicator {
     subcontrol-position: right center;
     right: 4px;
 }
 
-#ModeSwitch {
+#ModeSwitch, #ToolSwitch {
     background: #EEF0F5;
     border: 1px solid #D5D9E2;
     border-radius: 2px;
 }
 
-#ModeSwitch QToolButton {
+#ModeSwitch QToolButton, #ToolSwitch QToolButton {
     background: transparent;
     border: none;
     border-radius: 1px;
@@ -92,13 +103,20 @@ QToolBar QToolButton::menu-indicator {
     margin: 0;
 }
 
-#ModeSwitch QToolButton:hover {
+#ModeSwitch QToolButton:hover, #ToolSwitch QToolButton:hover {
     background: #DDE1EB;
 }
 
-#ModeSwitch QToolButton:checked {
+#ModeSwitch QToolButton:checked, #ToolSwitch QToolButton:checked {
     background: #1B3461;
     color: #FFFFFF;
+}
+
+/* Bloc des outils d'annotation : la flèche du menu reste discrète. */
+#ToolSwitch QToolButton::menu-indicator {
+    subcontrol-position: right bottom;
+    right: 2px;
+    bottom: 1px;
 }
 
 QToolBar QLabel {
@@ -265,6 +283,99 @@ QTabBar::tab:selected {
 QTabBar::tab:hover:!selected {
     background: #D5D9E2;
     color: #0D1526;
+}
+
+/* ═══ CASES À COCHER / BOUTONS RADIO ═══════════════════════════════
+   Indicateurs dessinés explicitement : sans cela, le mode sombre de
+   Windows fournit une coche claire sur fond clair, invisible. */
+
+QCheckBox, QRadioButton {
+    background: transparent;
+    color: #0D1526;
+    spacing: 8px;
+    padding: 2px 0;
+}
+
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 15px;
+    height: 15px;
+    background: #FFFFFF;
+    border: 1px solid #8F99AD;
+}
+
+QCheckBox::indicator { border-radius: 2px; }
+QRadioButton::indicator { border-radius: 8px; }
+
+QCheckBox::indicator:hover, QRadioButton::indicator:hover {
+    border-color: #1B3461;
+}
+
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background: #1B3461;
+    border-color: #1B3461;
+}
+
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    background: #ECEEF2;
+    border-color: #D5D9E2;
+}
+
+QCheckBox:disabled, QRadioButton:disabled { color: #8F99AD; }
+
+/* ═══ GROUPES ══════════════════════════════════════════════════════ */
+
+QGroupBox {
+    background: #FFFFFF;
+    border: 1px solid #D5D9E2;
+    border-radius: 2px;
+    margin-top: 14px;
+    padding: 12px 14px 12px 14px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 6px;
+    color: #4B5675;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+/* Les libellés d'un groupe reposent sur son fond blanc, pas sur le gris
+   de la fenêtre hérité de la règle QWidget. */
+QGroupBox QLabel { background: transparent; }
+
+/* ═══ ARBRE (rapport d'optimisation) ═══════════════════════════════ */
+
+QTreeWidget {
+    background: #FFFFFF;
+    border: 1px solid #D5D9E2;
+    border-radius: 2px;
+    outline: 0;
+    alternate-background-color: #F7F8FA;
+}
+
+QTreeWidget::item {
+    color: #0D1526;
+    padding: 4px 2px;
+    border: none;
+}
+
+QTreeWidget::item:selected {
+    background: #EEF0F5;
+    color: #0D1526;
+}
+
+QHeaderView::section {
+    background: #F4F5F8;
+    color: #4B5675;
+    border: none;
+    border-bottom: 1px solid #D5D9E2;
+    padding: 6px 8px;
+    font-size: 11px;
+    font-weight: 600;
 }
 
 /* ═══ DIALOGS ══════════════════════════════════════════════════════ */

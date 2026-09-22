@@ -1,8 +1,8 @@
 # PDF Manager
 
-Application de bureau autonome pour **gérer, fusionner, découper et OCRiser des
-PDF**. Le moteur OCR **Tesseract** est embarqué dans l'exécutable : l'utilisateur
-final n'installe rien.
+Application de bureau autonome pour **gérer, fusionner, découper, optimiser et
+OCRiser des PDF**. Le moteur OCR **Tesseract** est embarqué dans l'exécutable :
+l'utilisateur final n'installe rien.
 
 **Exécution sans installation et sans dépendance tierce** : l'exécutable se lance
 directement par double-clic, ne nécessite aucune installation et ne dépend
@@ -29,6 +29,9 @@ bibliothèques requises sont embarqués).
 - **Fusion (merge)** des documents sélectionnés dans l'ordre de sélection.
 - **OCR sur la sélection** : applique l'OCR à tous les documents sélectionnés
   (produit un PDF cherchable et compressé par document).
+- **Optimisation de la sélection** (bouton « Optimiser », ou clic droit sur une
+  vignette) : contrôle, réparation, nettoyage et compression en un seul passage
+  (voir §1 « Optimisation »).
 - **Recherche plein texte** dans les documents sélectionnés (résultats par
   document et par page, double-clic pour ouvrir la page).
 
@@ -46,12 +49,74 @@ bibliothèques requises sont embarqués).
   touche **`Suppr`** (une confirmation est demandée ; supprimer *toutes* les
   pages est refusé).
 - **Réorganisation** des pages par glisser-déposer (mode vignettes).
-- **Surlignage** (comme Acrobat) : bouton surligneur puis glisser à la souris —
-  sur du **texte**, chaque mot est surligné ; sur une **image/zone sans texte**,
-  un aplat de couleur semi-transparent est posé. Choix de la couleur (jaune,
-  vert, bleu, rose) via la flèche du bouton ; effacement des surlignages
-  (sélection ou tout le document) depuis le même menu. Les surlignages sont de
-  vraies annotations PDF, conservées à l'enregistrement.
+
+#### Annotation
+
+Les outils d'annotation sont réunis dans un **bloc unique** de la barre
+d'outils (mode continu) : ils s'excluent mutuellement et se quittent par
+**`Échap`**.
+
+- **Reprise d'une annotation** (flèche) : **cliquer** un texte, un tracé ou un
+  surlignage le **sélectionne** (cadre et poignées) ;
+  - **glisser** le **déplace** ;
+  - **double-clic** ouvre ses attributs (couleur, épaisseur, remplissage pour
+    un tracé ; contenu et mise en forme pour un texte) ;
+  - **`Suppr`** efface **cette seule** annotation, sans toucher aux autres.
+
+  Le double-clic et le clic droit fonctionnent aussi **sans activer l'outil**.
+
+- **Sélection de texte** (curseur `I`), dans les PDF contenant du texte :
+  glisser sur le document sélectionne le texte **au fil de la lecture** (comme
+  Acrobat), puis :
+  - **`Ctrl+C`** (ou le menu du bouton, ou le clic droit) **copie** le texte
+    dans le presse-papiers de Windows ;
+  - **« Surligner le texte sélectionné »** pose un vrai surlignage sur la
+    sélection.
+
+  Sur un PDF **image**, la sélection est vide et l'application le signale :
+  lancez l'**OCR**, ou utilisez le **marqueur** ci-dessous.
+
+- **Cases à cocher** : sur un **formulaire PDF**, un clic sur une case la
+  **coche / décoche** réellement (l'état est enregistré dans le document) ; sur
+  une case **imprimée** (PDF scanné, sans champ de formulaire), le clic pose
+  une **coche dessinée** — glisser permet de l'ajuster à la taille de la case.
+  Cette coche est un tracé ordinaire : déplaçable et effaçable comme les autres.
+
+- **Surlignage** (comme Acrobat), deux modes au choix dans la flèche du bouton
+  surligneur :
+  - **Sélection** : glisser sur du **texte** surligne chaque mot ; glisser sur
+    une **image / zone sans texte** pose un aplat teinté.
+  - **Marqueur** : trait de surligneur **à main levée**, qui suit la souris —
+    il ne dépend d'aucune couche de texte et fonctionne donc aussi sur un
+    **PDF image** (page scannée), comme le marqueur d'Acrobat. Épaisseur du
+    trait réglable (fin / moyen / épais).
+
+  Couleur au choix (jaune, vert, bleu, rose) ; effacement des surlignages
+  (sélection ou tout le document) depuis le même menu.
+
+- **Texte** (bouton `T`) : **cliquer** sur la page pour poser un texte ;
+  saisie sur plusieurs lignes, avec **police** (Helvetica, Times, Courier, gras
+  ou italique), **corps**, **couleur** et **fond blanc opaque** (pour masquer ce
+  qu'il y a dessous). Le texte reste **modifiable** : **double-clic** dessus (à
+  tout moment, même sans outil actif) rouvre la saisie avec sa mise en forme,
+  et l'outil texte permet de le **déplacer** par glisser. Le menu du bouton
+  efface les textes ajoutés (sélection ou tout le document).
+
+- **Dessin** : main levée, **ligne droite**, **flèche**, **rectangle** ou
+  **ellipse**, avec **couleur**, **épaisseur** et **remplissage** au choix dans
+  le menu du bouton, qui permet aussi d'effacer les dessins.
+
+- **Clic droit sur une page** (mode continu) : modifier, sélectionner (pour la
+  déplacer) ou supprimer l'annotation sous le curseur ; copier ou surligner le
+  texte sélectionné ; effacer les surlignages / dessins / textes de cette page.
+  **Échap** lève la sélection en cours, puis quitte l'outil.
+
+  Toutes ces annotations sont de **vraies annotations PDF** : elles sont
+  conservées à l'enregistrement, relues par n'importe quel lecteur PDF, et
+  restent modifiables lors d'une prochaine ouverture du document.
+
+#### Pages
+
 - **Copier / couper / coller de pages** : `Ctrl+C` / `Ctrl+X` / `Ctrl+V` (ou
   clic droit sur une vignette : copier, couper, coller **avant** ou **après**
   la page). Le collage fonctionne dans le **même document** ou dans **un autre
@@ -60,6 +125,57 @@ bibliothèques requises sont embarqués).
   - nom proposé automatiquement à partir du premier document ;
   - option de **suppression du document source** ;
   - le document enregistré est **toujours compressé**.
+
+### Optimisation
+
+Le bouton **« Optimiser »** traite les documents sélectionnés en un seul
+passage. Chaque étape est réglable dans la boîte de dialogue :
+
+1. **Contrôle** — diagnostic d'intégrité : structure endommagée, pages
+   illisibles, document chiffré, absence de couche de texte, scripts
+   JavaScript, fichiers joints. Le **contrôle approfondi** (optionnel) rend
+   chaque page en miniature : c'est plus lent, mais c'est le seul moyen de
+   repérer une page dont le contenu est corrompu.
+2. **Réparation** — quand le contrôle a trouvé quelque chose : la table des
+   objets est reconstruite, et le document est réassemblé page par page si des
+   pages sont illisibles. Les pages irrécupérables sont écartées et **citées
+   par leur numéro** dans le rapport.
+3. **Nettoyage** — au choix : métadonnées (y compris XMP), scripts JavaScript,
+   vignettes incorporées, flux de contenu des pages (cochés par défaut) ;
+   fichiers joints, texte masqué, liens hypertexte, champs de formulaire et
+   annotations (décochés — ce sont des données que l'on peut vouloir garder).
+4. **Compression** — cinq niveaux, d'« aucune » à « maximale ». Les trois
+   premiers sont **sans perte** (déduplication des objets, recompression des
+   flux, réduction des polices au strict nécessaire). Les deux derniers
+   ré-échantillonnent les images à 110 ou 96 ppp : le texte reste intact, les
+   photos et les scans perdent en finesse.
+
+Deux garde-fous : si le résultat est **plus gros** que l'original, c'est
+l'original qui est conservé ; un document **protégé par mot de passe** est
+signalé et laissé intact. Le résultat remplace les fichiers d'origine ou crée
+des copies suffixées `_optimise`, au choix.
+
+#### Le rapport
+
+Un **rapport** final donne, par document, un état et une explication — c'est
+lui qui dit si le traitement est allé jusqu'au bout :
+
+| État | Signification |
+|---|---|
+| **✓ Terminé** | Le fichier a été écrit ; la taille avant/après et le gain sont indiqués |
+| **= Inchangé** | Le traitement est allé au bout, mais **l'original a été conservé tel quel** — les raisons sont listées : rien à réparer, rien à retirer, aucun gain à la recompression |
+| **✕ Échec** | Le traitement s'est arrêté ; l'étape et la cause sont indiquées (mot de passe, fichier illisible, fichier verrouillé par un autre programme…) |
+| **⊘ Annulé** | Le document n'a pas été atteint avant l'annulation |
+
+Dans tous les cas, **le fichier d'origine n'est modifié que dans l'état
+« Terminé »**. Chaque ligne se déplie sur le parcours détaillé
+(`Étapes : les 5 ont été exécutées`, ou `arrêt à « contrôle » (1 sur 5)`), les
+constats du contrôle et la liste de ce qui a été fait. Tout document
+sélectionné figure au rapport, y compris ceux qui n'ont pas été traités.
+
+> **Un document qui ne change pas n'est pas un échec.** Un PDF déjà produit ou
+> optimisé par l'application est déjà compressé et dépourvu de métadonnées : il
+> ressort en « Inchangé », et le rapport dit précisément pourquoi.
 
 ### OCR
 
@@ -141,9 +257,12 @@ PDFManager/
 ├─ tessdata\                Dossier de repli (langues)
 └─ pdf_manager\
    ├─ main.py
-   ├─ library.py    Bibliothèque + sélection + fusion + OCR sur la sélection
-   ├─ viewer.py     Visionneuse (1 page grand / multi continu-vignettes + zoom)
-   ├─ pdf_ops.py    Opérations PDF (rendu, fusion, découpe, compression)
+   ├─ library.py    Bibliothèque + sélection + fusion + OCR + optimisation
+   ├─ viewer.py     Visionneuse + outils d'annotation (reprise, sélection de
+   │                texte, surligneur, texte, dessin, cases à cocher)
+   ├─ pdf_ops.py    Opérations PDF (rendu, fusion, découpe, compression,
+   │                annotations, sélection de texte, cases à cocher)
+   ├─ optimize.py   Contrôle, réparation, nettoyage et compression
    ├─ ocr.py        OCR Tesseract (langues writable, couche texte maison)
    └─ flowlayout.py Galerie
 ```

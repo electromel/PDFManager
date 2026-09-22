@@ -24,9 +24,11 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QToolBar, QInputDialog, QSizePolicy,
     QProgressDialog, QLineEdit, QDialog, QListWidget, QListWidgetItem,
     QHBoxLayout, QPushButton, QTabWidget, QSplitter, QMenu,
+    QCheckBox, QComboBox, QGroupBox, QRadioButton, QTreeWidget,
+    QTreeWidgetItem, QHeaderView, QGridLayout,
 )
 
-from . import pdf_ops, ocr
+from . import pdf_ops, ocr, optimize
 from .flowlayout import FlowLayout
 from . import icons
 
@@ -81,6 +83,282 @@ class SearchResultsDialog(QDialog):
         path = item.data(Qt.UserRole)
         if path and self.on_open:
             self.on_open(path)
+
+
+class OptimizeDialog(QDialog):
+    """Réglages du passage « contrôler / réparer / nettoyer / compresser »."""
+
+    def __init__(self, count: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Optimiser les PDF")
+        # Bornée : sans maximum, les libellés explicatifs s'étalent sur une
+        # seule ligne et la boîte devient plus large que l'écran.
+        self.setMinimumWidth(620)
+        self.setMaximumWidth(760)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(12)
+
+        intro = QLabel(
+            f"{count} document(s) sélectionné(s). Chaque document est contrôlé, "
+            "réparé si nécessaire, nettoyé puis compressé."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#4B5675;")
+        lay.addWidget(intro)
+
+        # ---------------------------------------------- contrôle / réparation
+        box_check = QGroupBox("Contrôle")
+        check_lay = QVBoxLayout(box_check)
+        self.chk_deep = QCheckBox(
+            "Contrôle approfondi (rendu de chaque page, plus lent)"
+        )
+        self.chk_deep.setToolTip(
+            "Rend chaque page en miniature pour détecter les pages dont le "
+            "contenu est corrompu."
+        )
+        self.chk_repair = QCheckBox("Réparer les documents endommagés")
+        self.chk_repair.setChecked(True)
+        check_lay.addWidget(self.chk_deep)
+        check_lay.addWidget(self.chk_repair)
+        lay.addWidget(box_check)
+
+        # --------------------------------------------------------- nettoyage
+        box_clean = QGroupBox("Nettoyage")
+        clean_lay = QGridLayout(box_clean)
+        clean_lay.setHorizontalSpacing(18)
+        self._clean_boxes = {}
+        half = (len(optimize.CLEAN_OPTIONS) + 1) // 2
+        for index, (key, label, hint, default) in enumerate(optimize.CLEAN_OPTIONS):
+            box = QCheckBox(label)
+            box.setToolTip(hint)
+            box.setChecked(default)
+            self._clean_boxes[key] = box
+            clean_lay.addWidget(box, index % half, index // half)
+        lay.addWidget(box_clean)
+
+        # ------------------------------------------------------- compression
+        box_zip = QGroupBox("Compression")
+        zip_lay = QVBoxLayout(box_zip)
+        self.combo_level = QComboBox()
+        for level in optimize.COMPRESS_LEVELS:
+            self.combo_level.addItem(optimize.COMPRESS_LABELS[level], level)
+        self.combo_level.setCurrentIndex(
+            optimize.COMPRESS_LEVELS.index("standard")
+        )
+        zip_lay.addWidget(self.combo_level)
+        hint = QLabel(
+            "Les deux derniers niveaux ré-échantillonnent les images : le texte "
+            "reste intact, les photos et les scans perdent en finesse. Si le "
+            "résultat est plus gros que l'original, celui-ci est conservé."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#8F99AD;font-size:12px;")
+        zip_lay.addWidget(hint)
+        lay.addWidget(box_zip)
+
+        # ----------------------------------------------------------- sortie
+        box_out = QGroupBox("Résultat")
+        out_lay = QVBoxLayout(box_out)
+        self.radio_replace = QRadioButton("Remplacer les fichiers d'origine")
+        self.radio_replace.setChecked(True)
+        self.radio_copy = QRadioButton(
+            f"Créer une copie suffixée « {optimize.COPY_SUFFIX} »"
+        )
+        out_lay.addWidget(self.radio_replace)
+        out_lay.addWidget(self.radio_copy)
+        lay.addWidget(box_out)
+
+        # ---------------------------------------------------------- boutons
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        btn_cancel = QPushButton("Annuler")
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("Optimiser")
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self.accept)
+        buttons.addWidget(btn_cancel)
+        buttons.addWidget(btn_ok)
+        lay.addLayout(buttons)
+
+    def settings(self) -> dict:
+        return {
+            "deep_check": self.chk_deep.isChecked(),
+            "repair": self.chk_repair.isChecked(),
+            "clean": {key: box.isChecked()
+                      for key, box in self._clean_boxes.items()},
+            "compress": self.combo_level.currentData(),
+            "replace": self.radio_replace.isChecked(),
+        }
+
+
+class OptimizeReportDialog(QDialog):
+    """Compte rendu d'optimisation : un document par ligne, détails dépliables."""
+
+    def __init__(self, results, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Rapport d'optimisation")
+        self.resize(860, 500)
+        lay = QVBoxLayout(self)
+
+        changed = [r for r in results if r["status"] == "done"]
+        before = sum(r["size_before"] for r in changed)
+        after = sum(r["size_after"] for r in changed)
+        gain = int(round((before - after) * 100.0 / before)) if before else 0
+
+        counts = {key: sum(1 for r in results if r["status"] == key)
+                  for key in ("done", "unchanged", "failed", "cancelled")}
+        parts = []
+        if counts["done"]:
+            parts.append(
+                f"{counts['done']} optimisé(s) : {optimize.human_size(before)} "
+                f"→ {optimize.human_size(after)}, "
+                f"{abs(gain)} % de {'moins' if gain >= 0 else 'plus'}"
+            )
+        if counts["unchanged"]:
+            parts.append(f"{counts['unchanged']} inchangé(s)")
+        if counts["failed"]:
+            parts.append(f"{counts['failed']} en échec")
+        if counts["cancelled"]:
+            parts.append(f"{counts['cancelled']} annulé(s)")
+
+        title = QLabel(" · ".join(parts) or "Aucun document traité.")
+        title.setWordWrap(True)
+        title.setStyleSheet("font-weight:600;font-size:14px;")
+        lay.addWidget(title)
+
+        if counts["failed"] or counts["cancelled"] or counts["unchanged"]:
+            note = QLabel(
+                "Dépliez une ligne pour savoir jusqu'où le traitement est allé "
+                "et pourquoi il s'est arrêté là."
+            )
+            note.setWordWrap(True)
+            note.setStyleSheet("color:#8F99AD;font-size:12px;")
+            lay.addWidget(note)
+
+        tree = QTreeWidget()
+        tree.setColumnCount(4)
+        tree.setHeaderLabels(["Document", "Avant", "Après", "Gain"])
+        tree.setAlternatingRowColors(True)
+        tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in (1, 2, 3):
+            tree.header().setSectionResizeMode(column, QHeaderView.ResizeToContents)
+
+        for result in results:
+            item = self._item_for(result)
+            tree.addTopLevelItem(item)
+            # Déplié dès que le résultat mérite une explication — et après
+            # l'ajout à l'arbre, sinon l'état est ignoré.
+            if result["status"] != "done" or result["repaired"]:
+                item.setExpanded(True)
+            if result["status"] == "failed":
+                # Un échec : on montre d'emblée où le traitement s'est arrêté.
+                for index in range(item.childCount()):
+                    item.child(index).setExpanded(True)
+        lay.addWidget(tree)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        btn = QPushButton("Fermer")
+        btn.clicked.connect(self.accept)
+        buttons.addWidget(btn)
+        lay.addLayout(buttons)
+
+    #: Marqueur d'état en tête de ligne, et l'état écrit en toutes lettres.
+    STATUS = {
+        "done":      ("✓", "Terminé"),
+        "unchanged": ("=", "Inchangé"),
+        "failed":    ("✕", "Échec"),
+        "cancelled": ("⊘", "Annulé"),
+    }
+
+    @classmethod
+    def _item_for(cls, result) -> QTreeWidgetItem:
+        status = result["status"]
+        glyph, label = cls.STATUS.get(status, ("?", "Inconnu"))
+        # Sur un échec, la copie de sortie n'existe pas : on nomme la source.
+        name = os.path.basename(
+            result["path"] if status == "failed"
+            else (result["out_path"] or result["path"])
+        )
+
+        if status in ("failed", "cancelled"):
+            item = QTreeWidgetItem([f"{glyph}  {name}", "—", "—", label])
+        else:
+            item = QTreeWidgetItem([
+                f"{glyph}  {name}",
+                optimize.human_size(result["size_before"]),
+                optimize.human_size(result["size_after"]),
+                f"{optimize.gain_percent(result)} %",
+            ])
+
+        # 1. le verdict, 2. pourquoi, 3. jusqu'où on est allé, 4. les constats
+        # du contrôle, 5. ce qui a été fait : lues à la suite, ces lignes
+        # racontent le traitement du document.
+        def add(parent, text):
+            # Une ligne d'arbre tronque au lieu de revenir à la ligne :
+            # l'infobulle garantit que le texte reste lisible en entier.
+            child = QTreeWidgetItem([text])
+            child.setToolTip(0, text.strip())
+            parent.addChild(child)
+            return child
+
+        add(item, result["summary"])
+        for note in result["notes"]:
+            add(item, f"   {note}")
+
+        if result["steps"]:
+            # Le détail du parcours est replié : l'en-tête suffit le plus
+            # souvent à savoir si le traitement est allé jusqu'au bout.
+            group = add(item, optimize.steps_headline(result))
+            group.setToolTip(0, optimize.steps_text(result))
+            for label, state in result["steps"]:
+                add(group, label if state is None else f"{label} — {state}")
+
+        for issue in (result["report"] or {}).get("issues", []):
+            add(item, f"⚠  {issue}")
+        for line in result["actions"]:
+            add(item, f"·  {line}")
+        return item
+
+
+class OptimizeWorker(QThread):
+    """Optimisation de plusieurs documents en arrière-plan."""
+    progress = Signal(int, int, str)   # fichiers traités, total, message
+    done = Signal(list)                # liste de comptes rendus
+    failed = Signal(str)
+
+    def __init__(self, paths, settings):
+        super().__init__()
+        self.paths = list(paths)
+        self.settings = dict(settings)
+
+    def run(self):
+        try:
+            total = len(self.paths)
+            results = []
+            for index, path in enumerate(self.paths):
+                if self.isInterruptionRequested():
+                    # Les documents non traités figurent quand même au rapport :
+                    # sinon ils disparaissent sans que l'on sache pourquoi.
+                    results += [optimize.cancelled_result(p)
+                                for p in self.paths[index:]]
+                    break
+                self.progress.emit(index, total, os.path.basename(path))
+                out_path = (None if self.settings["replace"]
+                            else optimize.copy_path_for(path))
+                results.append(optimize.optimize_file(
+                    path, out_path,
+                    deep_check=self.settings["deep_check"],
+                    repair=self.settings["repair"],
+                    clean=self.settings["clean"],
+                    compress=self.settings["compress"],
+                    progress=lambda message, _i=index:
+                        self.progress.emit(_i, total, message),
+                ))
+            self.progress.emit(total, total, "Terminé")
+            self.done.emit(results)
+        except Exception as e:
+            self.failed.emit(str(e))
 
 
 class MultiOcrWorker(QThread):
@@ -296,7 +574,9 @@ class LibraryWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PDF Manager")
-        self.resize(1000, 720)
+        # Assez large pour que la barre d'outils de la visionneuse (moitié
+        # droite de la fenêtre) montre ses outils sans repli.
+        self.resize(1280, 800)
         self.setAcceptDrops(True)
 
         self._cards: Dict[str, PdfCard] = {}
@@ -369,6 +649,13 @@ class LibraryWindow(QMainWindow):
         self.act_ocr.setToolTip("OCR sur la sélection")
         self.act_ocr.triggered.connect(self.ocr_selection)
         tb.addAction(self.act_ocr)
+
+        self.act_optimize = QAction(icons.icon("optimize"), "Optimiser", self)
+        self.act_optimize.setToolTip(
+            "Contrôler, réparer, nettoyer et compresser la sélection"
+        )
+        self.act_optimize.triggered.connect(self.optimize_selection)
+        tb.addAction(self.act_optimize)
 
         self.act_open = QAction(icons.icon("eye"), "Ouvrir", self)
         self.act_open.setToolTip("Ouvrir le document sélectionné dans le volet de droite")
@@ -557,6 +844,8 @@ class LibraryWindow(QMainWindow):
         a_open = menu.addAction(icons.icon("eye"), "Ouvrir")
         a_rename = menu.addAction(icons.icon("edit"), "Renommer")
         a_ocr = menu.addAction(icons.icon("ocr"), "OCR")
+        a_optimize = menu.addAction(icons.icon("optimize"), "Optimiser…")
+        a_optimize.setToolTip("Contrôler, réparer, nettoyer et compresser")
         a_merge = menu.addAction(icons.icon("merge"), "Fusionner la sélection")
         a_merge.setEnabled(len(self._selection) >= 2)
         a_merge.setToolTip("Sélectionnez au moins deux documents")
@@ -569,6 +858,8 @@ class LibraryWindow(QMainWindow):
             self._rename_file(path)
         elif chosen == a_ocr:
             self._run_ocr_on([path])
+        elif chosen == a_optimize:
+            self._run_optimize_on([path])
         elif chosen == a_merge:
             self.merge_selection()
         elif chosen == a_del:
@@ -652,7 +943,9 @@ class LibraryWindow(QMainWindow):
         if self.tabs.isHidden():
             self.tabs.show()
             total = self.splitter.width() or self.width()
-            self.splitter.setSizes([total // 2, total // 2])
+            # La visionneuse prend les deux tiers : sa barre d'outils est
+            # fournie (annotation, pages, OCR) et doit rester lisible.
+            self.splitter.setSizes([total // 3, total - total // 3])
 
     def _update_tab_title(self, panel):
         idx = self.tabs.indexOf(panel)
@@ -818,6 +1111,81 @@ class LibraryWindow(QMainWindow):
         if getattr(self, "_ocr_progress", None):
             self._ocr_progress.close()
         QMessageBox.critical(self, "Erreur OCR", f"Échec de l'OCR :\n{msg}")
+
+    # -------------------------------------------------------- Optimiser --
+    def optimize_selection(self):
+        if not self._selection:
+            QMessageBox.information(
+                self, "Optimiser",
+                "Sélectionnez d'abord un ou plusieurs documents à optimiser."
+            )
+            return
+        self._run_optimize_on(list(self._selection))
+
+    def _run_optimize_on(self, paths):
+        """Contrôle / réparation / nettoyage / compression d'une liste de PDF."""
+        if not paths:
+            return
+        dlg = OptimizeDialog(len(paths), self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        settings = dlg.settings()
+
+        if settings["replace"]:
+            # Un document ouvert verrouille son fichier : impossible de le
+            # remplacer, et l'onglet afficherait de toute façon l'ancienne
+            # version.
+            for path in paths:
+                self._close_tab_for_path(path)
+
+        self._opt_progress = QProgressDialog(
+            "Préparation…", "Annuler", 0, len(paths), self
+        )
+        self._opt_progress.setWindowTitle("Optimisation en cours")
+        self._opt_progress.setWindowModality(Qt.WindowModal)
+        self._opt_progress.setMinimumDuration(0)
+        self._opt_progress.setValue(0)
+
+        self._opt_worker = OptimizeWorker(paths, settings)
+        self._opt_worker.progress.connect(self._on_optimize_progress)
+        self._opt_worker.done.connect(self._on_optimize_done)
+        self._opt_worker.failed.connect(self._on_optimize_failed)
+        self._opt_progress.canceled.connect(self._opt_worker.requestInterruption)
+        self._opt_worker.start()
+
+    def _on_optimize_progress(self, done_files, total_files, message):
+        if getattr(self, "_opt_progress", None) is None:
+            return
+        self._opt_progress.setMaximum(total_files)
+        self._opt_progress.setValue(done_files)
+        self._opt_progress.setLabelText(message)
+
+    def _on_optimize_done(self, results):
+        if getattr(self, "_opt_progress", None):
+            self._opt_progress.close()
+        for result in results:
+            if result["status"] == "done" and result["out_path"]:
+                self.notify_new_file(result["out_path"])
+        self.clear_selection()
+
+        changed = [r for r in results if r["status"] == "done"]
+        saved = sum(max(0, r["size_before"] - r["size_after"]) for r in changed)
+        stuck = [r for r in results if r["status"] in ("failed", "cancelled")]
+        message = (
+            f"Optimisation terminée — {len(changed)}/{len(results)} document(s) "
+            f"modifié(s), {optimize.human_size(saved)} récupéré(s)."
+        )
+        if stuck:
+            message += f" {len(stuck)} n'ont pas abouti (voir le rapport)."
+        self.statusBar().showMessage(message)
+        OptimizeReportDialog(results, self).exec()
+
+    def _on_optimize_failed(self, msg):
+        if getattr(self, "_opt_progress", None):
+            self._opt_progress.close()
+        QMessageBox.critical(
+            self, "Erreur", f"Échec de l'optimisation :\n{msg}"
+        )
 
     # --------------------------------------------------------- Recherche --
     def search_selection(self):
