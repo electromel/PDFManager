@@ -138,6 +138,10 @@ Depuis la **visionneuse** (bouton imprimante ou `Ctrl+P`) ou depuis la
   même sans enregistrement préalable ;
 - la **boîte d'impression Windows** habituelle donne l'imprimante, le nombre de
   copies, le recto-verso, la couleur ou le noir et blanc, et l'étendue de pages ;
+- pour une **impression partielle**, les champs « de … à … » arrivent déjà
+  remplis de la **première à la dernière page**, et bornés au document : il n'y
+  a qu'à corriger les deux nombres. « Tout » reste coché, donc ne rien toucher
+  imprime bien tout le document ;
 - si des pages sont **sélectionnées** dans la visionneuse, l'option
   « Sélection » de cette boîte les imprime seules — le clic droit sur une
   vignette propose aussi « Imprimer les pages sélectionnées » ;

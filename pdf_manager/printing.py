@@ -203,6 +203,14 @@ def print_pages(parent, pages: Sequence[Page], title: str = "",
     if selection:
         options |= QAbstractPrintDialog.PrintSelection
     dialog.setOptions(options)
+
+    # Impression partielle : les champs « de … à … » arrivent déjà remplis de
+    # la première à la dernière page, et bornés au document. Sans setMinMax,
+    # le dialogue annonce une plage de 0 à 2 147 483 647 et laisse saisir
+    # n'importe quoi. « Tout » reste coché : ne rien toucher imprime tout.
+    dialog.setMinMax(1, len(pages))
+    dialog.setFromTo(1, len(pages))
+
     if dialog.exec() != QPrintDialog.Accepted:
         return 0
 
