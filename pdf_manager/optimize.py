@@ -161,7 +161,11 @@ def _blank_report(path: str) -> dict:
         "is_form": False,
         "embedded_files": 0,
         "metadata": False,
+        "metadata_fields": 0,     # champs d'information renseignés
         "xml_metadata": False,
+        "fonts": 0,               # polices incorporées
+        "thumbnails": 0,          # pages portant une vignette incorporée
+        "fields": 0,              # champs de formulaire
         "javascript": False,
         "issues": [],             # descriptions lisibles, en français
     }
@@ -195,10 +199,11 @@ def _has_javascript(doc: "fitz.Document") -> bool:
 
 def _inspect_catalog(doc: "fitz.Document", report: dict) -> None:
     meta = doc.metadata or {}
-    report["metadata"] = any(
-        (meta.get(key) or "").strip()
-        for key in ("title", "author", "subject", "keywords", "creator", "producer")
+    report["metadata_fields"] = sum(
+        1 for key in ("title", "author", "subject", "keywords", "creator", "producer")
+        if (meta.get(key) or "").strip()
     )
+    report["metadata"] = bool(report["metadata_fields"])
     try:
         report["xml_metadata"] = bool((doc.get_xml_metadata() or "").strip())
     except Exception:
@@ -225,11 +230,17 @@ def _inspect_pages(doc: "fitz.Document", report: dict,
                    deep: bool = False,
                    progress: Optional[Callable[[str], None]] = None) -> None:
     total = doc.page_count
+    fonts = set()
     for index in range(total):
         if progress and (deep or index % 25 == 0):
             progress(f"contrôle de la page {index + 1}/{total}")
         try:
             page = doc[index]
+            fonts.update(f[0] for f in page.get_fonts() if f[0] > 0 and f[1] != "n/a")
+            if doc.xref_get_key(page.xref, "Thumb")[0] not in ("null", "unknown"):
+                report["thumbnails"] += 1
+            if report["is_form"]:
+                report["fields"] += sum(1 for _ in (page.widgets() or []))
             if page.get_text("text").strip():
                 report["text_pages"] += 1
             report["images"] += len(page.get_images(full=True))
@@ -241,6 +252,7 @@ def _inspect_pages(doc: "fitz.Document", report: dict,
                 page.get_pixmap(matrix=fitz.Matrix(0.1, 0.1), alpha=False)
         except Exception:
             report["broken_pages"].append(index + 1)
+    report["fonts"] = len(fonts)
 
     if report["broken_pages"]:
         report["issues"].append(
@@ -347,14 +359,35 @@ _SCRUB_KEYS = (
     "embedded_files", "hidden_text", "remove_links", "reset_fields",
 )
 
-#: Ce que le contrôle doit avoir repéré pour qu'on annonce un nettoyage.
-#: Les options absentes d'ici agissent en silence (rien de mesurable à citer).
-_CLEAN_EVIDENCE: Dict[str, Callable[[dict], bool]] = {
-    "metadata":       lambda rep: bool(rep.get("metadata") or rep.get("xml_metadata")),
-    "javascript":     lambda rep: bool(rep.get("javascript")),
-    "embedded_files": lambda rep: bool(rep.get("embedded_files")),
-    "remove_links":   lambda rep: bool(rep.get("links")),
-    "reset_fields":   lambda rep: bool(rep.get("is_form")),
+def _plural(count: int, singular: str, plural: Optional[str] = None) -> str:
+    return f"{count} {singular if count < 2 else (plural or singular + 's')}"
+
+
+#: Ce que le contrôle a repéré et que le nettoyage retire : une phrase chiffrée
+#: par option, ou None s'il n'y avait rien à retirer. Les options absentes
+#: d'ici agissent en silence (rien de mesurable à citer).
+_CLEAN_REMOVED: Dict[str, Callable[[dict], Optional[str]]] = {
+    "metadata": lambda rep: (
+        "Métadonnées retirées : " + ", ".join(
+            ([_plural(rep["metadata_fields"], "champ d'information", "champs d'information")]
+             if rep.get("metadata_fields") else [])
+            + (["métadonnées XMP"] if rep.get("xml_metadata") else [])
+        )
+    ) if rep.get("metadata") or rep.get("xml_metadata") else None,
+    "javascript": lambda rep: (
+        "Code JavaScript retiré" if rep.get("javascript") else None),
+    "thumbnails": lambda rep: (
+        _plural(rep["thumbnails"], "vignette incorporée", "vignettes incorporées")
+        + " retirée(s)" if rep.get("thumbnails") else None),
+    "embedded_files": lambda rep: (
+        _plural(rep["embedded_files"], "fichier joint", "fichiers joints")
+        + " retiré(s)" if rep.get("embedded_files") else None),
+    "remove_links": lambda rep: (
+        _plural(rep["links"], "lien hypertexte", "liens hypertextes")
+        + " retiré(s)" if rep.get("links") else None),
+    "reset_fields": lambda rep: (
+        _plural(rep["fields"] or 1, "champ de formulaire", "champs de formulaire")
+        + " réinitialisé(s)" if rep.get("is_form") else None),
 }
 
 
@@ -392,16 +425,16 @@ def _clean(doc: "fitz.Document", options: Dict[str, bool],
            report: dict) -> List[str]:
     """Applique le nettoyage demandé ; renvoie ce qui a été retiré.
 
-    Seules les suppressions que le contrôle a pu constater sont citées :
-    annoncer « vignettes supprimées » sur un document qui n'en avait aucune
-    ne renseignerait personne.
+    Seules les suppressions que le contrôle a pu constater sont citées, avec
+    leur nombre : annoncer « vignettes supprimées » sur un document qui n'en
+    avait aucune ne renseignerait personne.
     """
     done: List[str] = []
 
     if options.get("annotations"):
         removed = _drop_annotations(doc)
         if removed:
-            done.append(f"{removed} annotation(s) supprimée(s)")
+            done.append(f"{_plural(removed, 'annotation')} supprimée(s)")
 
     if not any(options.get(key) for key in _SCRUB_KEYS):
         return done
@@ -423,12 +456,11 @@ def _clean(doc: "fitz.Document", options: Dict[str, bool],
     if options.get("javascript"):
         _forget_javascript(doc)
 
-    labels = {key: label for key, label, _hint, _d in CLEAN_OPTIONS}
-    done += [
-        f"Nettoyage : {labels[key][0].lower()}{labels[key][1:]}"
-        for key in _SCRUB_KEYS
-        if options.get(key) and _CLEAN_EVIDENCE.get(key, lambda _r: False)(report)
-    ]
+    for key in _SCRUB_KEYS:
+        if options.get(key) and key in _CLEAN_REMOVED:
+            message = _CLEAN_REMOVED[key](report)
+            if message:
+                done.append(message)
     return done
 
 
@@ -470,28 +502,61 @@ def _write(doc: "fitz.Document", out_path: str, level: str) -> None:
     _save(doc, out_path, options)
 
 
-def _shrink_images(in_path: str, out_path: str, level: str) -> bool:
-    """Ré-échantillonne les images de in_path vers out_path. False si impossible."""
+def _image_snapshot(doc: "fitz.Document") -> Dict[int, tuple]:
+    """{xref: (largeur, hauteur, octets)} de chaque image distincte du document."""
+    snapshot: Dict[int, tuple] = {}
+    for page in doc:
+        for img in page.get_images(full=True):
+            xref = img[0]
+            if xref in snapshot:
+                continue
+            try:
+                size = len(doc.xref_stream_raw(xref) or b"")
+            except Exception:
+                size = 0
+            snapshot[xref] = (img[2], img[3], size)
+    return snapshot
+
+
+def _shrink_images(in_path: str, out_path: str, level: str) -> Optional[dict]:
+    """Ré-échantillonne les images de in_path vers out_path.
+
+    Renvoie {"total": images distinctes, "changed": images recompressées},
+    ou None si l'opération est impossible.
+    """
     settings = _IMAGE_SETTINGS.get(level)
     if not settings:
-        return False
+        return None
     doc = fitz.open(in_path)
     try:
         if not hasattr(doc, "rewrite_images"):
-            return False
+            return None
+        try:
+            before = _image_snapshot(doc)
+        except Exception:
+            before = {}
         doc.rewrite_images(
             lossy=True, lossless=True, color=True, gray=True, bitonal=False,
             **settings,
         )
+        try:
+            after = _image_snapshot(doc)
+        except Exception:
+            after = {}
+        stats = {
+            "total": len(before),
+            "changed": sum(1 for xref, state in before.items()
+                           if after.get(xref) != state),
+        }
         options = dict(_SAVE_BASE)
         options["use_objstms"] = 1
         options["compression_effort"] = 100
         if doc.is_encrypted:
             options["encryption"] = fitz.PDF_ENCRYPT_KEEP
         _save(doc, out_path, options)
-        return True
+        return stats
     except Exception:
-        return False
+        return None
     finally:
         doc.close()
 
@@ -700,11 +765,15 @@ def optimize_file(
             _mark(result, "repair", "désactivée alors qu'elle était nécessaire")
         else:
             step(f"{name} — réparation…")
+            rebuilt_pages = 0
             if report["broken_pages"]:
                 doc, dropped = _rebuild(doc)
                 result["dropped_pages"] = dropped
+                rebuilt_pages = doc.page_count
             result["repaired"] = True
             message = "Structure reconstruite"
+            if rebuilt_pages:
+                message += f" ({_plural(rebuilt_pages, 'page')} recopiée(s))"
             if result["dropped_pages"]:
                 message += (
                     f" — {len(result['dropped_pages'])} page(s) irrécupérable(s) "
@@ -739,10 +808,16 @@ def optimize_file(
             pass
 
     best = tmp_base
+    image_note = None
     if result["compress"] in _IMAGE_SETTINGS:
         step(f"{name} — recompression des images…")
-        if (_shrink_images(tmp_base, tmp_image, result["compress"])
-                and 0 < file_size(tmp_image) < file_size(tmp_base)):
+        stats = _shrink_images(tmp_base, tmp_image, result["compress"])
+        if stats and 0 < file_size(tmp_image) < file_size(tmp_base):
+            saved = file_size(tmp_base) - file_size(tmp_image)
+            image_note = (
+                f"{_plural(stats['changed'], 'image')} recompressée(s) "
+                f"sur {stats['total']} — {human_size(saved)} économisés"
+            )
             best = tmp_image
             _mark(result, "compress",
                   COMPRESS_LABELS[result["compress"]].split("—")[0].strip().lower())
@@ -789,8 +864,22 @@ def optimize_file(
     if result["compress"] != "none":
         label = COMPRESS_LABELS[result["compress"]].split("—")[0].strip()
         result["actions"].append(f"Compression « {label} »")
+        if image_note:
+            result["actions"].append(image_note)
+        if result["compress"] in ("standard", "strong", "max") and report["fonts"]:
+            result["actions"].append(
+                _plural(report["fonts"], "police incorporée", "polices incorporées")
+                + " réduite(s) aux caractères utilisés"
+            )
     _mark(result, "write", "fichier écrit")
     return _finish(result, clean, size_after)
+
+
+def improvement_count(result: dict) -> int:
+    """Nombre d'améliorations réellement appliquées à ce document."""
+    if result.get("status") != "done":
+        return 0
+    return len(result["actions"])
 
 
 def gain_percent(result: dict) -> int:

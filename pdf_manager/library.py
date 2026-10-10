@@ -214,6 +214,9 @@ class OptimizeReportDialog(QDialog):
                 f"→ {optimize.human_size(after)}, "
                 f"{abs(gain)} % de {'moins' if gain >= 0 else 'plus'}"
             )
+            improvements = sum(optimize.improvement_count(r) for r in results)
+            if improvements:
+                parts.append(f"{improvements} amélioration(s) appliquée(s)")
         if counts["unchanged"]:
             parts.append(f"{counts['unchanged']} inchangé(s)")
         if counts["failed"]:
@@ -316,8 +319,23 @@ class OptimizeReportDialog(QDialog):
 
         for issue in (result["report"] or {}).get("issues", []):
             add(item, f"⚠  {issue}")
-        for line in result["actions"]:
-            add(item, f"·  {line}")
+
+        count = optimize.improvement_count(result)
+        if count:
+            improved = add(item, f"Améliorations : {count}")
+            removed = [a for a in result["actions"] if a in result["cleaned"]]
+            for line in result["actions"]:
+                if line not in result["cleaned"]:
+                    add(improved, f"·  {line}")
+            if removed:
+                group = add(improved, f"Éléments retirés : {len(removed)}")
+                for line in removed:
+                    add(group, f"·  {line}")
+                group.setExpanded(True)
+            improved.setExpanded(True)
+        else:
+            for line in result["actions"]:
+                add(item, f"·  {line}")
         return item
 
 
